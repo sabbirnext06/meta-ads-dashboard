@@ -6,7 +6,7 @@ import type { MetaAd, GroupedAds } from "@/types/meta";
 
 const GRAPH_URL = "https://graph.facebook.com/v21.0";
 const FIELDS =
-  "id,name,status,creative{id,name,object_type,thumbnail_url,image_url},adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
+  "id,name,status,creative{id,name,object_type,thumbnail_url,image_url,picture},adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
 
 const CACHE_FILE = process.env.VERCEL
   ? "/tmp/meta-ads-cache.json"

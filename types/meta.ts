@@ -19,6 +19,7 @@ export interface MetaCreative {
   object_type: string;
   thumbnail_url?: string;
   image_url?: string;
+  picture?: string;  // static image for any creative type, incl. video
 }
 
 export interface MetaAd {

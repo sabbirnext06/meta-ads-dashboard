@@ -6,13 +6,19 @@ import type { GroupedAds, MetaAd } from "@/types/meta";
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function adsManagerUrl(type: "campaign" | "adset" | "ad", id: string, accountId: string) {
-  const paths = { campaign: "campaigns", adset: "adsets", ad: "ads" };
-  const params = {
-    campaign: "selected_campaign_ids",
-    adset: "selected_adset_ids",
-    ad: "selected_ad_ids",
-  };
-  return `https://adsmanager.facebook.com/adsmanager/manage/${paths[type]}?act=${accountId}&${params[type]}=${id}`;
+  const base = "https://adsmanager.facebook.com/adsmanager/manage";
+  // Go to the child level filtered by the parent — so you land on the actual content
+  switch (type) {
+    case "campaign":
+      // → ad sets view filtered to this campaign
+      return `${base}/adsets?act=${accountId}&selected_campaign_ids=${id}`;
+    case "adset":
+      // → ads view filtered to this ad set
+      return `${base}/ads?act=${accountId}&selected_adset_ids=${id}`;
+    case "ad":
+      // → ads view with this ad selected
+      return `${base}/ads?act=${accountId}&selected_ad_ids=${id}`;
+  }
 }
 
 function ExternalLink({ href, label }: { href: string; label?: string }) {

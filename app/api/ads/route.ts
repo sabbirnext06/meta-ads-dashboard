@@ -117,24 +117,18 @@ export async function GET(request: Request) {
   const now = Date.now();
   const disk = readDiskCache();
 
+  const meta = { accountId, tokenExpiresIn: readTokenFile() ? tokenExpiresIn(readTokenFile()!) : null };
+
   // Serve fresh cache if within TTL
   if (disk && !forceRefresh && now - disk.cachedAt < CACHE_TTL_MS) {
-    const tokenData = readTokenFile();
-    return NextResponse.json({
-      ...disk,
-      tokenExpiresIn: tokenData ? tokenExpiresIn(tokenData) : null,
-    });
+    return NextResponse.json({ ...disk, ...meta });
   }
 
   try {
     const ads = await fetchAllAds(accountId, token);
     const payload: CachePayload = { ...groupAds(ads), cachedAt: now };
     writeDiskCache(payload);
-    const tokenData = readTokenFile();
-    return NextResponse.json({
-      ...payload,
-      tokenExpiresIn: tokenData ? tokenExpiresIn(tokenData) : null,
-    });
+    return NextResponse.json({ ...payload, ...meta });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     const isRateLimit =

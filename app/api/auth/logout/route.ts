@@ -4,5 +4,7 @@ import { getBaseUrl } from "@/lib/url";
 
 export async function GET() {
   clearTokenFile();
-  return NextResponse.redirect(`${getBaseUrl()}/`);
+  const response = NextResponse.redirect(`${getBaseUrl()}/`);
+  response.cookies.delete("meta_token");
+  return response;
 }

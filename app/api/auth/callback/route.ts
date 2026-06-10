@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { writeTokenFile } from "@/lib/token";
+import { writeTokenFile, tokenCookieOptions } from "@/lib/token";
 import { getBaseUrl } from "@/lib/url";
 
 export async function GET(request: Request) {
@@ -39,11 +39,17 @@ export async function GET(request: Request) {
   const finalToken: string = longData.access_token ?? shortData.access_token;
   const expiresIn: number = longData.expires_in ?? shortData.expires_in ?? 3600;
 
-  writeTokenFile({
+  const tokenData = {
     access_token: finalToken,
     expires_at: Date.now() + expiresIn * 1000,
     obtained_at: Date.now(),
-  });
+  };
 
-  return NextResponse.redirect(`${base}/`);
+  // Local dev: write to file cache
+  writeTokenFile(tokenData);
+
+  // Vercel: store in HttpOnly cookie so it survives across serverless instances
+  const response = NextResponse.redirect(`${base}/`);
+  response.cookies.set("meta_token", JSON.stringify(tokenData), tokenCookieOptions(tokenData.expires_at));
+  return response;
 }

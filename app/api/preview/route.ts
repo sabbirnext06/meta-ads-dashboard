@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const adId = searchParams.get("adId");
   const format = searchParams.get("format") || "MOBILE_FEED_STANDARD";
 
-  const token = getValidToken();
+  const token = await getValidToken();
   if (!token) return NextResponse.json({ needsAuth: true }, { status: 401 });
   if (!adId) return NextResponse.json({ error: "adId is required" }, { status: 400 });
 

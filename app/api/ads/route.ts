@@ -5,7 +5,7 @@ import { unstable_cache, revalidateTag } from "next/cache";
 export const maxDuration = 60;
 import fs from "fs";
 import path from "path";
-import { getValidToken, readTokenFile, tokenExpiresIn } from "@/lib/token";
+import { getValidToken, readTokenData, tokenExpiresIn } from "@/lib/token";
 import type { MetaAd, GroupedAds } from "@/types/meta";
 
 const GRAPH_URL = "https://graph.facebook.com/v21.0";
@@ -118,7 +118,7 @@ function groupAds(ads: MetaAd[]): GroupedAds {
 // Revalidated every 2 hours or on-demand via revalidateTag("meta-ads").
 const getVercelCachedAds = unstable_cache(
   async (accountId: string) => {
-    const token = getValidToken();
+    const token = await getValidToken();
     if (!token) throw new Error("NEEDS_AUTH");
     const ads = await fetchAllAds(accountId, token);
     return { ...groupAds(ads), cachedAt: Date.now() } as CachePayload;
@@ -132,12 +132,13 @@ export async function GET(request: Request) {
   const accountId = process.env.META_AD_ACCOUNT_ID;
   if (!accountId) return NextResponse.json({ error: "META_AD_ACCOUNT_ID must be set" }, { status: 500 });
 
-  const token = getValidToken();
+  const token = await getValidToken();
   if (!token) return NextResponse.json({ needsAuth: true }, { status: 401 });
 
   const forceRefresh = new URL(request.url).searchParams.get("refresh") === "true";
   const businessId = process.env.META_BUSINESS_ID ?? "";
-  const tokenMeta = { accountId, businessId, tokenExpiresIn: readTokenFile() ? tokenExpiresIn(readTokenFile()!) : null };
+  const tokenData = await readTokenData();
+  const tokenMeta = { accountId, businessId, tokenExpiresIn: tokenData ? tokenExpiresIn(tokenData) : null };
 
   // ── Vercel: use Next.js Data Cache (shared across all instances) ──────────
   if (process.env.VERCEL) {

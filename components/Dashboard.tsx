@@ -412,19 +412,19 @@ export default function Dashboard() {
       }
       if (json.needsAuth) { setNeedsAuth(true); return; }
       if (res.status === 429 || json.rateLimitResetMinutes != null) {
-        setRateLimitMinutes(json.rateLimitResetMinutes ?? 5);
-        if (json.error) setError(json.error);
+        setRateLimitMinutes((json.rateLimitResetMinutes as number | null) ?? 5);
+        if (json.error) setError(json.error as string);
         return;
       }
-      if (json.error) throw new Error(json.error);
-      if (json.warning) setWarning(json.warning);
-      setData(json);
-      if (json.accountId) setAccountId(json.accountId);
-      if (json.businessId) setBusinessId(json.businessId);
-      if (json.tokenExpiresIn) setTokenExpiresIn(json.tokenExpiresIn);
-      setCachedAt(json.cachedAt ? new Date(json.cachedAt) : new Date());
+      if (json.error) throw new Error(json.error as string);
+      if (json.warning) setWarning(json.warning as string);
+      setData(json as unknown as GroupedAds);
+      if (json.accountId) setAccountId(json.accountId as string);
+      if (json.businessId) setBusinessId(json.businessId as string);
+      if (json.tokenExpiresIn) setTokenExpiresIn(json.tokenExpiresIn as string);
+      setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
       const allOpen: Record<string, boolean> = {};
-      Object.keys(json.campaigns ?? {}).forEach((id) => (allOpen[id] = true));
+      Object.keys((json.campaigns ?? {}) as object).forEach((id) => (allOpen[id] = true));
       setExpanded(allOpen);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");

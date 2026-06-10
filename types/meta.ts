@@ -15,7 +15,7 @@ export interface MetaAdSet {
 
 export interface MetaCreative {
   id: string;
-  name: string;
+  name?: string;
   object_type: string;
   thumbnail_url?: string;
   image_url?: string;

@@ -9,8 +9,12 @@ import { getValidToken, readTokenData, tokenExpiresIn } from "@/lib/token";
 import type { MetaAd, GroupedAds } from "@/types/meta";
 
 const GRAPH_URL = "https://graph.facebook.com/v21.0";
-const FIELDS =
-  "id,name,status,creative{id,name,object_type,thumbnail_url,image_url},adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
+// Two lightweight field sets — each can use limit=500 (5 calls vs 22 with combined fields)
+// Pass 1: structure only — no image URLs → small payload → 500/page
+const STRUCTURE_FIELDS =
+  "id,name,status,adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
+// Pass 2: creative thumbnails — no deep nesting → 500/page
+const CREATIVE_FIELDS = "id,creative{id,object_type,thumbnail_url,image_url}";
 
 // ── Local file cache (dev only) ──────────────────────────────────────────────
 const LOCAL_CACHE_FILE = path.join(process.cwd(), ".cache", "ads.json");
@@ -26,7 +30,6 @@ function writeLocalCache(p: CachePayload) {
 }
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 class RateLimitError extends Error {
   resetInMinutes: number;
@@ -51,15 +54,14 @@ class OverloadError extends Error {
   constructor() { super("overload"); this.name = "OverloadError"; }
 }
 
-async function fetchPagedAds(accountId: string, token: string, pageSize: number): Promise<MetaAd[]> {
+// Fetch all pages for a given set of fields and page size
+async function fetchFieldedAds(accountId: string, token: string, fields: string, pageSize: number): Promise<MetaAd[]> {
   const allAds: MetaAd[] = [];
   const effectiveStatus = encodeURIComponent(JSON.stringify(["ACTIVE"]));
   let url: string | null =
-    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=${pageSize}&access_token=${token}`;
-  let page = 0;
+    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${fields}&limit=${pageSize}&access_token=${token}`;
 
   while (url) {
-    page++;
     const res: Response = await fetch(url, { cache: "no-store" });
 
     const resetIn = parseRateLimitReset(res.headers.get("x-business-use-case-usage"));
@@ -81,19 +83,27 @@ async function fetchPagedAds(accountId: string, token: string, pageSize: number)
   return allAds;
 }
 
-// Auto-retries with smaller page sizes: 100 → 50 → 25
-async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
-  for (const pageSize of [100, 50, 25]) {
+// Fetch one field set with automatic page-size fallback: 500 → 200 → 100
+async function fetchWithFallback(accountId: string, token: string, fields: string): Promise<MetaAd[]> {
+  for (const pageSize of [500, 200, 100]) {
     try {
-      return await fetchPagedAds(accountId, token, pageSize);
+      return await fetchFieldedAds(accountId, token, fields, pageSize);
     } catch (err) {
-      if (err instanceof OverloadError && pageSize > 25) {
-        continue; // retry immediately with smaller page size
-      }
+      if (err instanceof OverloadError && pageSize > 100) continue;
       throw err;
     }
   }
   throw new Error("Meta API rejected all page sizes. Please try again later.");
+}
+
+// Two-pass fetch: structure (no URLs) + creatives (no nesting) → merge by ad ID
+// With 2154 ads: 500/page = 5 calls per pass = 10 total (~2–4s vs 22 calls before)
+async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
+  const structureAds = await fetchWithFallback(accountId, token, STRUCTURE_FIELDS);
+  const creativeAds = await fetchWithFallback(accountId, token, CREATIVE_FIELDS);
+
+  const creativeMap = new Map(creativeAds.map(a => [a.id, a.creative]));
+  return structureAds.map(a => ({ ...a, creative: creativeMap.get(a.id) }));
 }
 
 function groupAds(ads: MetaAd[]): GroupedAds {

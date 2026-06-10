@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { unstable_cache, revalidateTag } from "next/cache";
+
+// Increase Vercel function timeout to 60s (Pro plan) to handle large ad accounts
+export const maxDuration = 60;
 import fs from "fs";
 import path from "path";
 import { getValidToken, readTokenFile, tokenExpiresIn } from "@/lib/token";
@@ -56,7 +59,7 @@ async function fetchPagedAds(accountId: string, token: string, pageSize: number)
   let page = 0;
 
   while (url) {
-    if (page > 0) await sleep(1000); // 1 s between pages
+    if (page > 0) await sleep(200); // 200ms between pages (rate limit is hourly count, not per-second)
     page++;
     const res: Response = await fetch(url, { cache: "no-store" });
 
@@ -86,7 +89,7 @@ async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> 
       return await fetchPagedAds(accountId, token, pageSize);
     } catch (err) {
       if (err instanceof OverloadError && pageSize > 25) {
-        await sleep(2000); // brief pause before retry with smaller page
+        await sleep(500);
         continue;
       }
       throw err;

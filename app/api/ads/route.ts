@@ -114,12 +114,11 @@ function groupAds(ads: MetaAd[]): GroupedAds {
 }
 
 // ── Vercel-native cache via Next.js Data Cache ───────────────────────────────
-// Persists across ALL serverless instances — survives cold starts.
-// Revalidated every 2 hours or on-demand via revalidateTag("meta-ads").
+// cookies() cannot be called inside unstable_cache (no request context).
+// Token is read by the route handler and passed in as a parameter so the
+// cached function never needs to touch cookies/headers itself.
 const getVercelCachedAds = unstable_cache(
-  async (accountId: string) => {
-    const token = await getValidToken();
-    if (!token) throw new Error("NEEDS_AUTH");
+  async (accountId: string, token: string) => {
     const ads = await fetchAllAds(accountId, token);
     return { ...groupAds(ads), cachedAt: Date.now() } as CachePayload;
   },
@@ -144,7 +143,7 @@ export async function GET(request: Request) {
   if (process.env.VERCEL) {
     if (forceRefresh) revalidateTag("meta-ads");
     try {
-      const data = await getVercelCachedAds(accountId);
+      const data = await getVercelCachedAds(accountId, token);
       return NextResponse.json({ ...data, ...tokenMeta });
     } catch (err) {
       if (err instanceof RateLimitError) {
@@ -154,7 +153,6 @@ export async function GET(request: Request) {
         );
       }
       const message = err instanceof Error ? err.message : "Unknown error";
-      if (message === "NEEDS_AUTH") return NextResponse.json({ needsAuth: true }, { status: 401 });
       return NextResponse.json({ error: message }, { status: 500 });
     }
   }

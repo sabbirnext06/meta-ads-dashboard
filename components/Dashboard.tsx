@@ -232,8 +232,7 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
   const infoRef = useRef<HTMLDivElement>(null);
   const type = adTypeInfo(ad.creative?.object_type);
 
-  // Best-quality URL: prefer picture (higher-res static frame) over thumbnail
-  const rawUrl = ad.creative?.picture || ad.creative?.image_url || ad.creative?.thumbnail_url;
+  const rawUrl = ad.creative?.image_url || ad.creative?.thumbnail_url;
   // Upscale Meta CDN URLs: replace small size params with a larger one
   const thumbnailUrl = rawUrl
     ? rawUrl.replace(/\/[sp]\d+x\d+\//, "/p600x600/").replace(/_s\.jpg/, "_n.jpg")

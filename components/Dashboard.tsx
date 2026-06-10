@@ -5,24 +5,32 @@ import type { GroupedAds, MetaAd } from "@/types/meta";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-// Meta Ads Manager only filters (not just selects) when the full parent chain is provided.
-// selected_campaign_ids on /adsets → filters to that campaign's adsets
-// selected_campaign_ids + selected_adset_ids on /ads → filters to that adset's ads
-// Without the parent chain, Ads Manager shows all entities and just checks the target row.
+// Builds Ads Manager deep links using filter_set for actual filtering (not just checkbox selection).
+// filter_set format: {TYPE}_SELECTED-STRING_SET%1EIN%1E[%22{id}%22]
+// %1E = unit separator, %22 = double-quote — this is what Meta's own UI generates.
 function adsManagerUrl(
   type: "campaign" | "adset" | "ad",
   id: string,
   accountId: string,
-  ctx?: { campaignId?: string; adsetId?: string },
+  ctx?: { campaignId?: string; adsetId?: string; businessId?: string },
 ) {
   const base = "https://adsmanager.facebook.com/adsmanager/manage";
+  const biz = ctx?.businessId ? `&business_id=${ctx.businessId}` : "";
+  const nav = "&nav_source=no_referrer";
+
   switch (type) {
-    case "campaign":
-      return `${base}/adsets?act=${accountId}&selected_campaign_ids=${id}`;
-    case "adset":
-      return `${base}/ads?act=${accountId}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${id}`;
-    case "ad":
-      return `${base}/ads?act=${accountId}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${ctx?.adsetId ?? ""}&selected_ad_ids=${id}`;
+    case "campaign": {
+      const filter = `CAMPAIGN_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/adsets?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${id}${nav}`;
+    }
+    case "adset": {
+      const filter = `ADSET_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/ads?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${id}${nav}`;
+    }
+    case "ad": {
+      const filter = `ADGROUP_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/ads?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${ctx?.adsetId ?? ""}&selected_ad_ids=${id}${nav}`;
+    }
   }
 }
 
@@ -104,7 +112,7 @@ const FORMATS = [
   { key: "AUDIENCE_NETWORK_OUTSTREAM_VIDEO", label: "Audience Network" },
 ];
 
-function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: string; onClose: () => void }) {
+function PreviewModal({ ad, accountId, businessId, onClose }: { ad: MetaAd; accountId: string; businessId: string; onClose: () => void }) {
   const [format, setFormat] = useState("MOBILE_FEED_STANDARD");
   const [preview, setPreview] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
@@ -195,7 +203,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
               <p className="text-sm font-medium text-gray-800 truncate">{ad.adset.campaign.name}</p>
             </div>
             <ExternalLink
-              href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId)}
+              href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })}
               label="Open"
             />
           </div>
@@ -207,7 +215,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
               <p className="text-sm font-medium text-gray-800 truncate">{ad.adset.name}</p>
             </div>
             <ExternalLink
-              href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id })}
+              href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })}
               label="Open"
             />
           </div>
@@ -219,7 +227,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
               <p className="text-sm font-medium text-gray-800 truncate">{ad.name}</p>
             </div>
             <ExternalLink
-              href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id })}
+              href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
               label="Open"
             />
           </div>
@@ -231,7 +239,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
 
 // ─── Ad Card ────────────────────────────────────────────────────────────────
 
-function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; onPreview: (ad: MetaAd) => void }) {
+function AdCard({ ad, accountId, businessId, onPreview }: { ad: MetaAd; accountId: string; businessId: string; onPreview: (ad: MetaAd) => void }) {
   const [infoOpen, setInfoOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
@@ -329,13 +337,13 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Campaign</p>
                   <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.campaign.name}</p>
-                  <ExternalLink href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId)} label="Open in Ads Manager" />
+                  <ExternalLink href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })} label="Open in Ads Manager" />
                 </div>
                 <div className="border-t border-gray-100" />
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Ad Set</p>
                   <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.name}</p>
-                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id })} label="Open in Ads Manager" />
+                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })} label="Open in Ads Manager" />
                 </div>
                 <div className="border-t border-gray-100" />
                 <div className="flex items-center justify-between">
@@ -350,7 +358,7 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
 
           {/* Open ad in Ads Manager */}
           <a
-            href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id })}
+            href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
             target="_blank"
             rel="noreferrer"
             title="Open ad in Ads Manager"
@@ -371,6 +379,7 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
 export default function Dashboard() {
   const [data, setData] = useState<GroupedAds | null>(null);
   const [accountId, setAccountId] = useState<string>("");
+  const [businessId, setBusinessId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [rateLimitMinutes, setRateLimitMinutes] = useState<number | null>(null);
@@ -402,6 +411,7 @@ export default function Dashboard() {
       if (json.warning) setWarning(json.warning);
       setData(json);
       if (json.accountId) setAccountId(json.accountId);
+      if (json.businessId) setBusinessId(json.businessId);
       if (json.tokenExpiresIn) setTokenExpiresIn(json.tokenExpiresIn);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt) : new Date());
       const allOpen: Record<string, boolean> = {};
@@ -479,6 +489,7 @@ export default function Dashboard() {
         <PreviewModal
           ad={previewAd}
           accountId={accountId}
+          businessId={businessId}
           onClose={() => setPreviewAd(null)}
         />
       )}
@@ -657,7 +668,7 @@ export default function Dashboard() {
                         </button>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
                           <StatusBadge status={campaignData.campaign.status} />
-                          <ExternalLink href={adsManagerUrl("campaign", campaignId, accountId)} />
+                          <ExternalLink href={adsManagerUrl("campaign", campaignId, accountId, { businessId })} />
                           <svg
                             className={`w-3.5 h-3.5 text-gray-400 transition-transform cursor-pointer ${isOpen ? "rotate-180" : ""}`}
                             fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -694,7 +705,7 @@ export default function Dashboard() {
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
                                     <StatusBadge status={adsetData.adset.status} />
-                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId })} />
+                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId, businessId })} />
                                   </div>
                                 </div>
 
@@ -705,6 +716,7 @@ export default function Dashboard() {
                                       key={ad.id}
                                       ad={ad}
                                       accountId={accountId}
+                                      businessId={businessId}
                                       onPreview={setPreviewAd}
                                     />
                                   ))}

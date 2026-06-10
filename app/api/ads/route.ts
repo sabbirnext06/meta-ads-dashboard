@@ -116,7 +116,8 @@ export async function GET(request: Request) {
   if (!token) return NextResponse.json({ needsAuth: true }, { status: 401 });
 
   const forceRefresh = new URL(request.url).searchParams.get("refresh") === "true";
-  const tokenMeta = { accountId, tokenExpiresIn: readTokenFile() ? tokenExpiresIn(readTokenFile()!) : null };
+  const businessId = process.env.META_BUSINESS_ID ?? "";
+  const tokenMeta = { accountId, businessId, tokenExpiresIn: readTokenFile() ? tokenExpiresIn(readTokenFile()!) : null };
 
   // ── Vercel: use Next.js Data Cache (shared across all instances) ──────────
   if (process.env.VERCEL) {

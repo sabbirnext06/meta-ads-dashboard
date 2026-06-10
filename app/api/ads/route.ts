@@ -25,29 +25,50 @@ function writeLocalCache(p: CachePayload) {
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+class RateLimitError extends Error {
+  resetInMinutes: number;
+  constructor(message: string, resetInMinutes: number) {
+    super(message);
+    this.name = "RateLimitError";
+    this.resetInMinutes = resetInMinutes;
+  }
+}
+
+// Parses Meta's X-Business-Use-Case-Usage header and returns minutes until reset (0 = not limited)
+function parseRateLimitReset(header: string | null): number {
+  if (!header) return 0;
+  try {
+    const parsed = JSON.parse(header) as Record<string, { estimated_time_to_regain_access?: number; call_count?: number }[]>;
+    const entry = Object.values(parsed)[0]?.[0];
+    return entry?.estimated_time_to_regain_access ?? 0;
+  } catch { return 0; }
+}
+
 async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
   const allAds: MetaAd[] = [];
   const effectiveStatus = encodeURIComponent(JSON.stringify(["ACTIVE"]));
+  // 300 per page = ~8 calls for 2 100 ads (vs 22 calls at 100/page)
   let url: string | null =
-    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=100&access_token=${token}`;
+    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=300&access_token=${token}`;
   let page = 0;
 
   while (url) {
-    if (page > 0) await sleep(800);
+    if (page > 0) await sleep(1000); // 1 s between pages
     page++;
     const res: Response = await fetch(url, { cache: "no-store" });
 
-    const usage = res.headers.get("x-business-use-case-usage");
-    if (usage) {
-      try {
-        const parsed = JSON.parse(usage) as Record<string, { call_count: number }[]>;
-        const entry = Object.values(parsed)[0]?.[0];
-        if (entry && entry.call_count >= 75) await sleep(5000);
-      } catch { /* ignore */ }
+    // Back off if Meta says we're close to the limit
+    const resetIn = parseRateLimitReset(res.headers.get("x-business-use-case-usage"));
+    if (resetIn > 0) {
+      throw new RateLimitError(`Meta rate limit reached. Quota resets in ~${resetIn} minute${resetIn !== 1 ? "s" : ""}.`, resetIn);
     }
 
-    const data: { data?: MetaAd[]; error?: { message: string }; paging?: { next?: string } } = await res.json();
-    if (data.error) throw new Error(data.error.message);
+    const data: { data?: MetaAd[]; error?: { message: string; code?: number }; paging?: { next?: string } } = await res.json();
+    if (data.error) {
+      const isRateLimit = data.error.code === 17 || data.error.message.toLowerCase().includes("too many calls");
+      if (isRateLimit) throw new RateLimitError("Meta rate limit reached. Please wait a few minutes and click Refresh.", 5);
+      throw new Error(data.error.message);
+    }
     allAds.push(...(data.data ?? []));
     url = data.paging?.next ?? null;
   }
@@ -101,15 +122,14 @@ export async function GET(request: Request) {
       const data = await getVercelCachedAds(accountId);
       return NextResponse.json({ ...data, ...tokenMeta });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      if (message === "NEEDS_AUTH") return NextResponse.json({ needsAuth: true }, { status: 401 });
-      const isRateLimit = message.toLowerCase().includes("too many calls") || message.toLowerCase().includes("rate limit");
-      if (isRateLimit) {
+      if (err instanceof RateLimitError) {
         return NextResponse.json(
-          { error: "Meta rate limit hit. Please wait a few minutes and click Refresh." },
+          { error: err.message, rateLimitResetMinutes: err.resetInMinutes },
           { status: 429 },
         );
       }
+      const message = err instanceof Error ? err.message : "Unknown error";
+      if (message === "NEEDS_AUTH") return NextResponse.json({ needsAuth: true }, { status: 401 });
       return NextResponse.json({ error: message }, { status: 500 });
     }
   }
@@ -128,15 +148,17 @@ export async function GET(request: Request) {
     writeLocalCache(payload);
     return NextResponse.json({ ...payload, ...tokenMeta });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    const isRateLimit = message.toLowerCase().includes("too many calls") || message.toLowerCase().includes("rate limit");
-    if (isRateLimit && disk) {
-      const ageMin = Math.round((now - disk.cachedAt) / 60000);
-      return NextResponse.json({
-        ...disk, ...tokenMeta,
-        warning: `Meta rate limit hit — showing cached data from ${ageMin} min ago. Auto-retries in 2 hrs.`,
-      });
+    if (err instanceof RateLimitError) {
+      if (disk) {
+        const ageMin = Math.round((now - disk.cachedAt) / 60000);
+        return NextResponse.json({
+          ...disk, ...tokenMeta,
+          warning: `Meta rate limit — showing cached data from ${ageMin} min ago. Resets in ~${err.resetInMinutes} min.`,
+        });
+      }
+      return NextResponse.json({ error: err.message, rateLimitResetMinutes: err.resetInMinutes }, { status: 429 });
     }
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

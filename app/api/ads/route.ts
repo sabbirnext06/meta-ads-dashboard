@@ -44,12 +44,15 @@ function parseRateLimitReset(header: string | null): number {
   } catch { return 0; }
 }
 
-async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
+class OverloadError extends Error {
+  constructor() { super("overload"); this.name = "OverloadError"; }
+}
+
+async function fetchPagedAds(accountId: string, token: string, pageSize: number): Promise<MetaAd[]> {
   const allAds: MetaAd[] = [];
   const effectiveStatus = encodeURIComponent(JSON.stringify(["ACTIVE"]));
-  // 100 per page keeps response payload small (300 caused "please reduce data" error)
   let url: string | null =
-    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=100&access_token=${token}`;
+    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=${pageSize}&access_token=${token}`;
   let page = 0;
 
   while (url) {
@@ -57,7 +60,6 @@ async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> 
     page++;
     const res: Response = await fetch(url, { cache: "no-store" });
 
-    // Back off if Meta says we're close to the limit
     const resetIn = parseRateLimitReset(res.headers.get("x-business-use-case-usage"));
     if (resetIn > 0) {
       throw new RateLimitError(`Meta rate limit reached. Quota resets in ~${resetIn} minute${resetIn !== 1 ? "s" : ""}.`, resetIn);
@@ -67,15 +69,30 @@ async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> 
     if (data.error) {
       const msg = data.error.message ?? "";
       const isRateLimit = data.error.code === 17 || msg.toLowerCase().includes("too many calls");
-      const isOverload = msg.toLowerCase().includes("please reduce");
       if (isRateLimit) throw new RateLimitError("Meta rate limit reached. Please wait a few minutes and click Refresh.", 5);
-      if (isOverload) throw new Error("Meta API overloaded. Please try again in a moment.");
+      if (msg.toLowerCase().includes("please reduce")) throw new OverloadError();
       throw new Error(msg);
     }
     allAds.push(...(data.data ?? []));
     url = data.paging?.next ?? null;
   }
   return allAds;
+}
+
+// Auto-retries with smaller page sizes: 100 → 50 → 25
+async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
+  for (const pageSize of [100, 50, 25]) {
+    try {
+      return await fetchPagedAds(accountId, token, pageSize);
+    } catch (err) {
+      if (err instanceof OverloadError && pageSize > 25) {
+        await sleep(2000); // brief pause before retry with smaller page
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Meta API rejected all page sizes. Please try again later.");
 }
 
 function groupAds(ads: MetaAd[]): GroupedAds {

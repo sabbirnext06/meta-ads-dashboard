@@ -5,19 +5,24 @@ import type { GroupedAds, MetaAd } from "@/types/meta";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-function adsManagerUrl(type: "campaign" | "adset" | "ad", id: string, accountId: string) {
+// Meta Ads Manager only filters (not just selects) when the full parent chain is provided.
+// selected_campaign_ids on /adsets → filters to that campaign's adsets
+// selected_campaign_ids + selected_adset_ids on /ads → filters to that adset's ads
+// Without the parent chain, Ads Manager shows all entities and just checks the target row.
+function adsManagerUrl(
+  type: "campaign" | "adset" | "ad",
+  id: string,
+  accountId: string,
+  ctx?: { campaignId?: string; adsetId?: string },
+) {
   const base = "https://adsmanager.facebook.com/adsmanager/manage";
-  // Go to the child level filtered by the parent — so you land on the actual content
   switch (type) {
     case "campaign":
-      // → ad sets view filtered to this campaign
       return `${base}/adsets?act=${accountId}&selected_campaign_ids=${id}`;
     case "adset":
-      // → ads view filtered to this ad set
-      return `${base}/ads?act=${accountId}&selected_adset_ids=${id}`;
+      return `${base}/ads?act=${accountId}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${id}`;
     case "ad":
-      // → ads view with this ad selected
-      return `${base}/ads?act=${accountId}&selected_ad_ids=${id}`;
+      return `${base}/ads?act=${accountId}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${ctx?.adsetId ?? ""}&selected_ad_ids=${id}`;
   }
 }
 
@@ -202,7 +207,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
               <p className="text-sm font-medium text-gray-800 truncate">{ad.adset.name}</p>
             </div>
             <ExternalLink
-              href={adsManagerUrl("adset", ad.adset.id, accountId)}
+              href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id })}
               label="Open"
             />
           </div>
@@ -214,7 +219,7 @@ function PreviewModal({ ad, accountId, onClose }: { ad: MetaAd; accountId: strin
               <p className="text-sm font-medium text-gray-800 truncate">{ad.name}</p>
             </div>
             <ExternalLink
-              href={adsManagerUrl("ad", ad.id, accountId)}
+              href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id })}
               label="Open"
             />
           </div>
@@ -330,7 +335,7 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Ad Set</p>
                   <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.name}</p>
-                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId)} label="Open in Ads Manager" />
+                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id })} label="Open in Ads Manager" />
                 </div>
                 <div className="border-t border-gray-100" />
                 <div className="flex items-center justify-between">
@@ -345,7 +350,7 @@ function AdCard({ ad, accountId, onPreview }: { ad: MetaAd; accountId: string; o
 
           {/* Open ad in Ads Manager */}
           <a
-            href={adsManagerUrl("ad", ad.id, accountId)}
+            href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id })}
             target="_blank"
             rel="noreferrer"
             title="Open ad in Ads Manager"
@@ -689,7 +694,7 @@ export default function Dashboard() {
                                   <div className="flex items-center gap-2 shrink-0">
                                     {budget && <span className="text-xs text-gray-500">{budget}</span>}
                                     <StatusBadge status={adsetData.adset.status} />
-                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId)} />
+                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId })} />
                                   </div>
                                 </div>
 

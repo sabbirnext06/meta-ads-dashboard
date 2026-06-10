@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-const TOKEN_FILE = path.join(process.cwd(), ".cache", "token.json");
+// On Vercel serverless, write to /tmp (ephemeral but works within warm instances).
+// Locally, write to .cache/ (persists across restarts).
+const TOKEN_FILE = process.env.VERCEL
+  ? "/tmp/meta-token.json"
+  : path.join(process.cwd(), ".cache", "token.json");
 
 export interface TokenData {
   access_token: string;
@@ -18,16 +22,22 @@ export function readTokenFile(): TokenData | null {
 }
 
 export function writeTokenFile(data: TokenData) {
-  fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(data, null, 2));
+  try {
+    if (!process.env.VERCEL) {
+      fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
+    }
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(data, null, 2));
+  } catch { /* non-fatal */ }
 }
 
 export function clearTokenFile() {
   try { fs.unlinkSync(TOKEN_FILE); } catch { /* already gone */ }
 }
 
-/** Returns a valid token string, or null if missing/expired. */
 export function getValidToken(): string | null {
+  // Env var takes priority — set META_ACCESS_TOKEN in Vercel dashboard for production
+  if (process.env.META_ACCESS_TOKEN) return process.env.META_ACCESS_TOKEN;
+
   const data = readTokenFile();
   if (!data) return null;
   // 10-minute buffer before expiry
@@ -35,7 +45,6 @@ export function getValidToken(): string | null {
   return data.access_token;
 }
 
-/** Human-readable expiry string, e.g. "59 days" */
 export function tokenExpiresIn(data: TokenData): string {
   const ms = data.expires_at - Date.now();
   if (ms <= 0) return "expired";

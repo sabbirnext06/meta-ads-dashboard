@@ -8,7 +8,9 @@ const GRAPH_URL = "https://graph.facebook.com/v21.0";
 const FIELDS =
   "id,name,status,creative{id,name,object_type,thumbnail_url,image_url},adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
 
-const CACHE_FILE = path.join(process.cwd(), ".cache", "ads.json");
+const CACHE_FILE = process.env.VERCEL
+  ? "/tmp/meta-ads-cache.json"
+  : path.join(process.cwd(), ".cache", "ads.json");
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 type CachePayload = GroupedAds & { cachedAt: number };

@@ -400,7 +400,16 @@ export default function Dashboard() {
     setNeedsAuth(false);
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
-      const json = await res.json();
+      let json: Record<string, unknown>;
+      try {
+        json = await res.json();
+      } catch {
+        // Vercel timeout / crash returns HTML — give a clear message
+        if (res.status === 504 || res.status === 502) {
+          throw new Error("Request timed out. Your ad account is large — click Retry to try again.");
+        }
+        throw new Error(`Server error (${res.status}). Click Retry to try again.`);
+      }
       if (json.needsAuth) { setNeedsAuth(true); return; }
       if (res.status === 429 || json.rateLimitResetMinutes != null) {
         setRateLimitMinutes(json.rateLimitResetMinutes ?? 5);

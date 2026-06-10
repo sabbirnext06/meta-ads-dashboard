@@ -59,7 +59,6 @@ async function fetchPagedAds(accountId: string, token: string, pageSize: number)
   let page = 0;
 
   while (url) {
-    if (page > 0) await sleep(200); // 200ms between pages (rate limit is hourly count, not per-second)
     page++;
     const res: Response = await fetch(url, { cache: "no-store" });
 
@@ -89,8 +88,7 @@ async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> 
       return await fetchPagedAds(accountId, token, pageSize);
     } catch (err) {
       if (err instanceof OverloadError && pageSize > 25) {
-        await sleep(500);
-        continue;
+        continue; // retry immediately with smaller page size
       }
       throw err;
     }

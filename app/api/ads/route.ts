@@ -47,9 +47,9 @@ function parseRateLimitReset(header: string | null): number {
 async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
   const allAds: MetaAd[] = [];
   const effectiveStatus = encodeURIComponent(JSON.stringify(["ACTIVE"]));
-  // 300 per page = ~8 calls for 2 100 ads (vs 22 calls at 100/page)
+  // 100 per page keeps response payload small (300 caused "please reduce data" error)
   let url: string | null =
-    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=300&access_token=${token}`;
+    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${effectiveStatus}&fields=${FIELDS}&limit=100&access_token=${token}`;
   let page = 0;
 
   while (url) {
@@ -65,9 +65,12 @@ async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> 
 
     const data: { data?: MetaAd[]; error?: { message: string; code?: number }; paging?: { next?: string } } = await res.json();
     if (data.error) {
-      const isRateLimit = data.error.code === 17 || data.error.message.toLowerCase().includes("too many calls");
+      const msg = data.error.message ?? "";
+      const isRateLimit = data.error.code === 17 || msg.toLowerCase().includes("too many calls");
+      const isOverload = msg.toLowerCase().includes("please reduce");
       if (isRateLimit) throw new RateLimitError("Meta rate limit reached. Please wait a few minutes and click Refresh.", 5);
-      throw new Error(data.error.message);
+      if (isOverload) throw new Error("Meta API overloaded. Please try again in a moment.");
+      throw new Error(msg);
     }
     allAds.push(...(data.data ?? []));
     url = data.paging?.next ?? null;

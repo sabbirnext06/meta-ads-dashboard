@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# env & secrets
+.env.local
+.env*.local
+
+# token & cache
+.cache/
+
+# Next.js build
+.next/
+out/
+
+# misc
+.DS_Store
+*.pem

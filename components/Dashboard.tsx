@@ -1,15 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
+import type { MetaAd } from "@/types/meta";
+import type { CampaignWithAds } from "@/app/api/ads/route";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type CampaignAdsData = {
-  adsets: Record<string, AdsByAdSet>;
-  adCount: number;
-  cachedAt: number;
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -289,33 +284,10 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
   );
 }
 
-// ─── Campaign loading skeleton ────────────────────────────────────────────────
-
-function CampaignSkeleton() {
-  return (
-    <div className="border-t border-gray-100 p-4 animate-pulse">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="rounded-lg overflow-hidden border border-gray-100">
-            <div className="aspect-video bg-gray-200" />
-            <div className="p-2 space-y-1.5">
-              <div className="h-2.5 bg-gray-200 rounded w-3/4" />
-              <div className="h-2 bg-gray-100 rounded w-1/2" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
-  const [campaignAds, setCampaignAds] = useState<Record<string, CampaignAdsData | "loading" | "error">>({});
-  const [campaignErrors, setCampaignErrors] = useState<Record<string, string>>({});
-  const [loadingProgress, setLoadingProgress] = useState<{ done: number; total: number } | null>(null);
+  const [campaigns, setCampaigns] = useState<CampaignWithAds[]>([]);
   const [accountId, setAccountId] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -329,33 +301,14 @@ export default function Dashboard() {
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
 
-  // ── Load a single campaign's ads on demand ────────────────────────────────
-  const loadCampaignAds = useCallback(async (campaignId: string) => {
-    setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
-    try {
-      const res = await fetch(`/api/ads?campaignId=${campaignId}`);
-      const json = await res.json() as Record<string, unknown>;
-      if (json.needsAuth) { setNeedsAuth(true); return; }
-      if (json.error) throw new Error(json.error as string);
-      setCampaignAds((prev) => ({ ...prev, [campaignId]: json as unknown as CampaignAdsData }));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      setCampaignErrors((prev) => ({ ...prev, [campaignId]: msg }));
-      setCampaignAds((prev) => ({ ...prev, [campaignId]: "error" }));
-    }
-  }, []);
-
-  // ── Load campaign list only (fast — 1 API call) ────────────────────────────
+  // ── Single fetch: all campaigns + all ads + all insights ──────────────────
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     setRateLimitMinutes(null);
     setNeedsAuth(false);
     setCampaigns([]);
-    setCampaignAds({});
-    setCampaignErrors({});
     setExpanded({});
-    setLoadingProgress(null);
 
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
@@ -373,40 +326,23 @@ export default function Dashboard() {
       }
       if (json.error) throw new Error(json.error as string);
 
-      const list = (json.campaigns as MetaCampaign[]) ?? [];
+      const list = (json.campaigns as CampaignWithAds[]) ?? [];
       setCampaigns(list);
       setAccountId((json.accountId as string) ?? "");
       setBusinessId((json.businessId as string) ?? "");
       setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
 
-      if (list.length > 0) {
-        // Auto-expand all campaigns
-        const autoExpanded: Record<string, boolean> = {};
-        list.forEach((c) => { autoExpanded[c.id] = true; });
-        setExpanded(autoExpanded);
-
-        // Batch-load all campaigns in the background (20 concurrent)
-        const ids = list.map((c) => c.id);
-        const BATCH = 20;
-        setLoadingProgress({ done: 0, total: ids.length });
-        (async () => {
-          for (let i = 0; i < ids.length; i += BATCH) {
-            const batch = ids.slice(i, i + BATCH);
-            await Promise.all(batch.map((id) => loadCampaignAds(id)));
-            setLoadingProgress((prev) =>
-              prev ? { done: Math.min(i + BATCH, ids.length), total: ids.length } : null,
-            );
-          }
-          setLoadingProgress(null);
-        })();
-      }
+      // All campaigns arrive fully loaded — auto-expand all
+      const exp: Record<string, boolean> = {};
+      list.forEach((c) => { exp[c.campaign.id] = true; });
+      setExpanded(exp);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [loadCampaignAds]);
+  }, []);
 
   useEffect(() => { load(false); }, [load]);
 
@@ -415,35 +351,23 @@ export default function Dashboard() {
     if (ae) { setAuthError(decodeURIComponent(ae)); window.history.replaceState({}, "", "/"); }
   }, []);
 
-  // Expand a campaign and load its ads if not yet fetched
   const toggleCampaign = useCallback((id: string) => {
-    setExpanded((prev) => {
-      const opening = !prev[id];
-      if (opening && !campaignAds[id]) loadCampaignAds(id);
-      return { ...prev, [id]: opening };
-    });
-  }, [campaignAds, loadCampaignAds]);
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
 
   // ── Computed totals ────────────────────────────────────────────────────────
-  const loadedAds = Object.values(campaignAds).filter(
-    (v): v is CampaignAdsData => v !== "loading" && v !== "error",
-  );
-  const totalAds = loadedAds.reduce((n, c) => n + c.adCount, 0);
-  const totalAdSets = loadedAds.reduce((n, c) => n + Object.keys(c.adsets).length, 0);
+  const totalAds = campaigns.reduce((n, c) => n + c.adCount, 0);
+  const totalAdSets = campaigns.reduce((n, c) => n + Object.keys(c.adsets).length, 0);
 
   // ── Search ─────────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
-  const filteredCampaigns = campaigns.filter((c) => {
+  const filteredCampaigns = campaigns.filter(({ campaign, adsets }) => {
     if (!q) return true;
-    if (c.name.toLowerCase().includes(q)) return true;
-    const ads = campaignAds[c.id];
-    if (ads && ads !== "loading" && ads !== "error") {
-      return Object.values(ads.adsets).some(
-        (a) => a.adset.name.toLowerCase().includes(q) ||
-          a.ads.some((ad) => ad.name.toLowerCase().includes(q)),
-      );
-    }
-    return false;
+    if (campaign.name.toLowerCase().includes(q)) return true;
+    return Object.values(adsets).some(
+      (a) => a.adset.name.toLowerCase().includes(q) ||
+        a.ads.some((ad) => ad.name.toLowerCase().includes(q)),
+    );
   });
 
   // ── Connect screen ─────────────────────────────────────────────────────────
@@ -579,9 +503,9 @@ export default function Dashboard() {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Active Ads", value: totalAds > 0 ? totalAds : "—", color: "text-blue-600" },
+                { label: "Active Ads", value: totalAds, color: "text-blue-600" },
                 { label: "Campaigns", value: campaigns.length, color: "text-purple-600" },
-                { label: "Ad Sets", value: totalAdSets > 0 ? totalAdSets : "—", color: "text-indigo-600" },
+                { label: "Ad Sets", value: totalAdSets, color: "text-indigo-600" },
               ].map((s) => (
                 <div key={s.label} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
                   <p className="text-xs text-gray-500">{s.label}</p>
@@ -602,37 +526,22 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Background loading progress */}
-            {loadingProgress && (
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs text-gray-500">Loading ad creatives…</span>
-                    <span className="text-xs text-gray-400 tabular-nums">
-                      {loadingProgress.done} / {loadingProgress.total} campaigns
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1">
-                    <div
-                      className="bg-blue-500 h-1 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.round((loadingProgress.done / loadingProgress.total) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {filteredCampaigns.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
                 <p className="text-gray-400 text-sm">No active ads found{search ? " matching your search" : ""}.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredCampaigns.map((campaign) => {
-                  const isOpen = expanded[campaign.id] ?? false;
-                  const adsData = campaignAds[campaign.id];
-                  const adsetList = adsData && adsData !== "loading" && adsData !== "error"
-                    ? Object.values(adsData.adsets) : [];
+                {filteredCampaigns.map(({ campaign, adsets, adCount }) => {
+                  const isOpen = expanded[campaign.id] ?? true;
+                  const adsetList = Object.values(adsets).filter((a) => {
+                    if (!q) return true;
+                    return (
+                      campaign.name.toLowerCase().includes(q) ||
+                      a.adset.name.toLowerCase().includes(q) ||
+                      a.ads.some((ad) => ad.name.toLowerCase().includes(q))
+                    );
+                  });
 
                   return (
                     <div key={campaign.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -650,11 +559,7 @@ export default function Dashboard() {
                           <div className="min-w-0">
                             <p className="text-xs font-semibold text-gray-900 truncate">{campaign.name}</p>
                             <p className="text-[10px] text-gray-500 mt-0.5">
-                              {objectiveLabel(campaign.objective)}
-                              {adsData === "loading" && " · loading…"}
-                              {adsData === "error" && " · failed to load"}
-                              {adsData && adsData !== "loading" && adsData !== "error" &&
-                                ` · ${adsetList.length} ad set${adsetList.length !== 1 ? "s" : ""} · ${adsData.adCount} ad${adsData.adCount !== 1 ? "s" : ""}`}
+                              {objectiveLabel(campaign.objective)} · {Object.keys(adsets).length} ad set{Object.keys(adsets).length !== 1 ? "s" : ""} · {adCount} ad{adCount !== 1 ? "s" : ""}
                             </p>
                           </div>
                         </button>
@@ -673,79 +578,47 @@ export default function Dashboard() {
 
                       {/* Campaign body */}
                       {isOpen && (
-                        <>
-                          {adsData === "loading" && <CampaignSkeleton />}
-
-                          {adsData === "error" && (
-                            <div className="border-t border-gray-100 px-4 py-3 flex items-center gap-3">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs text-red-500">Failed to load ads for this campaign.</p>
-                                {campaignErrors[campaign.id] && (
-                                  <p className="text-[10px] text-red-400 mt-0.5 truncate">{campaignErrors[campaign.id]}</p>
-                                )}
+                        <div className="border-t border-gray-100 divide-y divide-gray-100">
+                          {adsetList.map((adsetData) => {
+                            const visibleAds = adsetData.ads.filter((ad) => {
+                              if (!q) return true;
+                              return (
+                                campaign.name.toLowerCase().includes(q) ||
+                                adsetData.adset.name.toLowerCase().includes(q) ||
+                                ad.name.toLowerCase().includes(q)
+                              );
+                            });
+                            const budget = formatBudget(adsetData.adset.daily_budget);
+                            return (
+                              <div key={adsetData.adset.id}>
+                                <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
+                                  <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
+                                    <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                                      <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                                    </svg>
+                                  </div>
+                                  <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
+                                    <StatusBadge status={adsetData.adset.status} />
+                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId: campaign.id, businessId })} />
+                                  </div>
+                                </div>
+                                <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                                  {visibleAds.map((ad) => (
+                                    <AdCard
+                                      key={ad.id}
+                                      ad={ad}
+                                      accountId={accountId}
+                                      businessId={businessId}
+                                      onPreview={setPreviewAd}
+                                    />
+                                  ))}
+                                </div>
                               </div>
-                              <button
-                                onClick={() => loadCampaignAds(campaign.id)}
-                                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 transition shrink-0"
-                              >
-                                Retry
-                              </button>
-                            </div>
-                          )}
-
-                          {adsData && adsData !== "loading" && adsData !== "error" && (
-                            <div className="border-t border-gray-100 divide-y divide-gray-100">
-                              {adsetList
-                                .filter((a) => {
-                                  if (!q) return true;
-                                  return (
-                                    campaign.name.toLowerCase().includes(q) ||
-                                    a.adset.name.toLowerCase().includes(q) ||
-                                    a.ads.some((ad) => ad.name.toLowerCase().includes(q))
-                                  );
-                                })
-                                .map((adsetData) => {
-                                  const visibleAds = adsetData.ads.filter((ad) => {
-                                    if (!q) return true;
-                                    return (
-                                      campaign.name.toLowerCase().includes(q) ||
-                                      adsetData.adset.name.toLowerCase().includes(q) ||
-                                      ad.name.toLowerCase().includes(q)
-                                    );
-                                  });
-                                  const budget = formatBudget(adsetData.adset.daily_budget);
-                                  return (
-                                    <div key={adsetData.adset.id}>
-                                      <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
-                                        <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
-                                          <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-                                          </svg>
-                                        </div>
-                                        <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                          {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
-                                          <StatusBadge status={adsetData.adset.status} />
-                                          <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId: campaign.id, businessId })} />
-                                        </div>
-                                      </div>
-                                      <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                                        {visibleAds.map((ad) => (
-                                          <AdCard
-                                            key={ad.id}
-                                            ad={ad}
-                                            accountId={accountId}
-                                            businessId={businessId}
-                                            onPreview={setPreviewAd}
-                                          />
-                                        ))}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                            </div>
-                          )}
-                        </>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                   );

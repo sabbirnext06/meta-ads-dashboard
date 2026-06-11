@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import type { GroupedAds, MetaAd } from "@/types/meta";
+import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-// Builds Ads Manager deep links using filter_set for actual filtering (not just checkbox selection).
-// filter_set format: {TYPE}_SELECTED-STRING_SET%1EIN%1E[%22{id}%22]
-// %1E = unit separator, %22 = double-quote — this is what Meta's own UI generates.
+type CampaignAdsData = {
+  adsets: Record<string, AdsByAdSet>;
+  adCount: number;
+  cachedAt: number;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function adsManagerUrl(
   type: "campaign" | "adset" | "ad",
   id: string,
@@ -17,19 +22,18 @@ function adsManagerUrl(
   const base = "https://adsmanager.facebook.com/adsmanager/manage";
   const biz = ctx?.businessId ? `&business_id=${ctx.businessId}` : "";
   const nav = "&nav_source=no_referrer";
-
   switch (type) {
     case "campaign": {
-      const filter = `CAMPAIGN_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
-      return `${base}/adsets?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${id}${nav}`;
+      const f = `CAMPAIGN_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/adsets?act=${accountId}${biz}&filter_set=${f}&selected_campaign_ids=${id}${nav}`;
     }
     case "adset": {
-      const filter = `ADSET_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
-      return `${base}/ads?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${id}${nav}`;
+      const f = `ADSET_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/ads?act=${accountId}${biz}&filter_set=${f}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${id}${nav}`;
     }
     case "ad": {
-      const filter = `ADGROUP_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
-      return `${base}/ads?act=${accountId}${biz}&filter_set=${filter}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${ctx?.adsetId ?? ""}&selected_ad_ids=${id}${nav}`;
+      const f = `ADGROUP_SELECTED-STRING_SET%1EIN%1E[%22${id}%22]`;
+      return `${base}/ads?act=${accountId}${biz}&filter_set=${f}&selected_campaign_ids=${ctx?.campaignId ?? ""}&selected_adset_ids=${ctx?.adsetId ?? ""}&selected_ad_ids=${id}${nav}`;
     }
   }
 }
@@ -102,7 +106,7 @@ function adTypeInfo(objectType?: string) {
   };
 }
 
-// ─── Preview Modal ───────────────────────────────────────────────────────────
+// ─── Preview Modal ────────────────────────────────────────────────────────────
 
 const FORMATS = [
   { key: "MOBILE_FEED_STANDARD", label: "Mobile Feed" },
@@ -112,28 +116,23 @@ const FORMATS = [
   { key: "AUDIENCE_NETWORK_OUTSTREAM_VIDEO", label: "Audience Network" },
 ];
 
-function PreviewModal({ ad, accountId, businessId, onClose }: { ad: MetaAd; accountId: string; businessId: string; onClose: () => void }) {
+function PreviewModal({ ad, accountId, businessId, onClose }: {
+  ad: MetaAd; accountId: string; businessId: string; onClose: () => void;
+}) {
   const [format, setFormat] = useState("MOBILE_FEED_STANDARD");
   const [preview, setPreview] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setPreviewLoading(true);
-    setPreviewError(null);
-    setPreview(null);
+    setPreviewLoading(true); setPreviewError(null); setPreview(null);
     fetch(`/api/preview?adId=${ad.id}&format=${format}`)
       .then((r) => r.json())
-      .then((d) => {
-        if (d.error) setPreviewError(d.error);
-        else setPreview(d.preview);
-      })
+      .then((d) => { if (d.error) setPreviewError(d.error); else setPreview(d.preview); })
       .catch(() => setPreviewError("Failed to load preview"))
       .finally(() => setPreviewLoading(false));
   }, [ad.id, format]);
-
-  // Close on backdrop click
-  const backdropRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
@@ -142,39 +141,25 @@ function PreviewModal({ ad, accountId, businessId, onClose }: { ad: MetaAd; acco
       onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[92vh] overflow-hidden">
-
-        {/* Header */}
         <div className="flex items-start justify-between gap-3 p-4 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
             <p className="text-xs text-gray-400 mb-0.5">Ad Preview</p>
             <h2 className="font-semibold text-gray-900 truncate text-sm">{ad.name}</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center shrink-0 transition"
-          >
+          <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center shrink-0 transition">
             <svg className="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-
-        {/* Format tabs */}
         <div className="flex gap-1.5 px-4 py-2.5 border-b border-gray-100 overflow-x-auto shrink-0">
           {FORMATS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFormat(f.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition ${
-                format === f.key ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
+            <button key={f.key} onClick={() => setFormat(f.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition ${format === f.key ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
               {f.label}
             </button>
           ))}
         </div>
-
-        {/* Preview iframe area */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
           {previewLoading && (
             <div className="w-full h-64 bg-gray-100 rounded-xl animate-pulse flex items-center justify-center">
@@ -182,54 +167,36 @@ function PreviewModal({ ad, accountId, businessId, onClose }: { ad: MetaAd; acco
             </div>
           )}
           {previewError && !previewLoading && (
-            <div className="w-full p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-              {previewError}
-            </div>
+            <div className="w-full p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{previewError}</div>
           )}
           {preview && !previewLoading && (
-            <div
-              className="w-full flex justify-center [&_iframe]:rounded-xl [&_iframe]:border-0 [&_iframe]:max-w-full"
-              dangerouslySetInnerHTML={{ __html: preview }}
-            />
+            <div className="w-full flex justify-center [&_iframe]:rounded-xl [&_iframe]:border-0 [&_iframe]:max-w-full"
+              dangerouslySetInnerHTML={{ __html: preview }} />
           )}
         </div>
-
-        {/* Campaign / Ad Set / Ad links */}
         <div className="border-t border-gray-100 p-4 space-y-2.5 shrink-0 bg-gray-50">
-          {/* Campaign */}
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs text-gray-400">Campaign</p>
               <p className="text-sm font-medium text-gray-800 truncate">{ad.adset.campaign.name}</p>
             </div>
-            <ExternalLink
-              href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })}
-              label="Open"
-            />
+            <ExternalLink href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })} label="Open" />
           </div>
           <div className="border-t border-gray-200" />
-          {/* Ad Set */}
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs text-gray-400">Ad Set</p>
               <p className="text-sm font-medium text-gray-800 truncate">{ad.adset.name}</p>
             </div>
-            <ExternalLink
-              href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })}
-              label="Open"
-            />
+            <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })} label="Open" />
           </div>
           <div className="border-t border-gray-200" />
-          {/* Ad */}
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs text-gray-400">Ad</p>
               <p className="text-sm font-medium text-gray-800 truncate">{ad.name}</p>
             </div>
-            <ExternalLink
-              href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
-              label="Open"
-            />
+            <ExternalLink href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })} label="Open" />
           </div>
         </div>
       </div>
@@ -237,44 +204,37 @@ function PreviewModal({ ad, accountId, businessId, onClose }: { ad: MetaAd; acco
   );
 }
 
-// ─── Ad Card ────────────────────────────────────────────────────────────────
+// ─── Ad Card ──────────────────────────────────────────────────────────────────
 
-function AdCard({ ad, accountId, businessId, onPreview }: { ad: MetaAd; accountId: string; businessId: string; onPreview: (ad: MetaAd) => void }) {
+function AdCard({ ad, accountId, businessId, onPreview }: {
+  ad: MetaAd; accountId: string; businessId: string; onPreview: (ad: MetaAd) => void;
+}) {
   const [infoOpen, setInfoOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
   const infoRef = useRef<HTMLDivElement>(null);
   const type = adTypeInfo(ad.creative?.object_type);
-
   const rawUrl = ad.creative?.image_url || ad.creative?.thumbnail_url;
-  // Upscale Meta CDN URLs: replace small size params with a larger one
   const thumbnailUrl = rawUrl
     ? rawUrl.replace(/\/[sp]\d+x\d+\//, "/p600x600/").replace(/_s\.jpg/, "_n.jpg")
     : undefined;
 
   useEffect(() => {
     if (!infoOpen) return;
-    function onClickOutside(e: MouseEvent) {
+    function handler(e: MouseEvent) {
       if (infoRef.current && !infoRef.current.contains(e.target as Node)) setInfoOpen(false);
     }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [infoOpen]);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
-      {/* Thumbnail — click to preview */}
       <button
         className="relative bg-gray-100 aspect-video overflow-hidden group cursor-pointer w-full text-left"
-        onClick={() => onPreview(ad)}
-        title="Click to preview"
+        onClick={() => onPreview(ad)} title="Click to preview"
       >
         {thumbnailUrl && !imgError ? (
-          <img
-            src={thumbnailUrl}
-            alt=""
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-            onError={() => setImgError(true)}
-          />
+          <img src={thumbnailUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" onError={() => setImgError(true)} />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-gray-300">
             {ad.creative?.object_type === "VIDEO" ? (
@@ -289,49 +249,30 @@ function AdCard({ ad, accountId, businessId, onPreview }: { ad: MetaAd; accountI
             <span className="text-[10px]">No preview</span>
           </div>
         )}
-
-        {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition flex items-center justify-center">
-          <span className="opacity-0 group-hover:opacity-100 transition bg-white/90 text-gray-800 text-[10px] font-medium px-2 py-1 rounded-full shadow">
-            Preview
-          </span>
+          <span className="opacity-0 group-hover:opacity-100 transition bg-white/90 text-gray-800 text-[10px] font-medium px-2 py-1 rounded-full shadow">Preview</span>
         </div>
-
-        {/* Type badge */}
         {ad.creative?.object_type && (
-          <span className={`absolute top-1.5 left-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${type.color}`}>
-            {type.label}
-          </span>
+          <span className={`absolute top-1.5 left-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${type.color}`}>{type.label}</span>
         )}
-        {/* Status badge */}
-        <span className="absolute top-1.5 right-1.5">
-          <StatusBadge status={ad.status} />
-        </span>
+        <span className="absolute top-1.5 right-1.5"><StatusBadge status={ad.status} /></span>
       </button>
-
-      {/* Body */}
       <div className="p-2 flex flex-col flex-1 gap-1.5">
         <div>
           <p className="text-[11px] font-medium text-gray-900 line-clamp-2 leading-snug">{ad.name}</p>
           <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">ID: {ad.id}</p>
         </div>
-
-        {/* Actions row */}
         <div className="mt-auto pt-1.5 border-t border-gray-100 flex gap-1.5">
-          {/* Info toggle */}
           <div className="relative flex-1" ref={infoRef}>
             <button
               onClick={() => setInfoOpen((v) => !v)}
-              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md w-full justify-center transition ${
-                infoOpen ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
+              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md w-full justify-center transition ${infoOpen ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
             >
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
               Info
             </button>
-
             {infoOpen && (
               <div className="absolute bottom-full left-0 right-0 mb-2 z-20 bg-white border border-gray-200 rounded-xl shadow-xl p-3 space-y-2.5">
                 <div>
@@ -355,13 +296,9 @@ function AdCard({ ad, accountId, businessId, onPreview }: { ad: MetaAd; accountI
               </div>
             )}
           </div>
-
-          {/* Open ad in Ads Manager */}
           <a
             href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
-            target="_blank"
-            rel="noreferrer"
-            title="Open ad in Ads Manager"
+            target="_blank" rel="noreferrer" title="Open ad in Ads Manager"
             className="flex items-center justify-center px-2 py-1 rounded-md bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-500 transition"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -374,14 +311,34 @@ function AdCard({ ad, accountId, businessId, onPreview }: { ad: MetaAd; accountI
   );
 }
 
-// ─── Main Dashboard ──────────────────────────────────────────────────────────
+// ─── Campaign loading skeleton ────────────────────────────────────────────────
+
+function CampaignSkeleton() {
+  return (
+    <div className="border-t border-gray-100 p-4 animate-pulse">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg overflow-hidden border border-gray-100">
+            <div className="aspect-video bg-gray-200" />
+            <div className="p-2 space-y-1.5">
+              <div className="h-2.5 bg-gray-200 rounded w-3/4" />
+              <div className="h-2 bg-gray-100 rounded w-1/2" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [data, setData] = useState<GroupedAds | null>(null);
-  const [accountId, setAccountId] = useState<string>("");
-  const [businessId, setBusinessId] = useState<string>("");
+  const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
+  const [campaignAds, setCampaignAds] = useState<Record<string, CampaignAdsData | "loading" | "error">>({});
+  const [accountId, setAccountId] = useState("");
+  const [businessId, setBusinessId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
   const [rateLimitMinutes, setRateLimitMinutes] = useState<number | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -391,72 +348,128 @@ export default function Dashboard() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
+  const [adsProgress, setAdsProgress] = useState({ done: 0, total: 0 });
+  const loadSessionRef = useRef(0);
 
+  // ── Retry a single failed campaign ────────────────────────────────────────
+  const retryCampaign = useCallback(async (campaignId: string) => {
+    setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
+    try {
+      const res = await fetch(`/api/ads?campaignId=${campaignId}`);
+      const json = await res.json() as Record<string, unknown>;
+      if (json.error) throw new Error(json.error as string);
+      setCampaignAds((prev) => ({ ...prev, [campaignId]: json as unknown as CampaignAdsData }));
+    } catch {
+      setCampaignAds((prev) => ({ ...prev, [campaignId]: "error" }));
+    }
+  }, []);
+
+  // ── Load all campaigns' ads in parallel batches ────────────────────────────
+  const loadAllCampaignAds = useCallback(async (list: MetaCampaign[], session: number) => {
+    const init: Record<string, "loading"> = {};
+    list.forEach((c) => { init[c.id] = "loading"; });
+    setCampaignAds(init);
+    setAdsProgress({ done: 0, total: list.length });
+
+    const BATCH = 5;
+    for (let i = 0; i < list.length; i += BATCH) {
+      if (loadSessionRef.current !== session) return;
+      await Promise.all(
+        list.slice(i, i + BATCH).map(async (campaign) => {
+          try {
+            const res = await fetch(`/api/ads?campaignId=${campaign.id}`);
+            if (loadSessionRef.current !== session) return;
+            const json = await res.json() as Record<string, unknown>;
+            if (json.error) throw new Error(json.error as string);
+            setCampaignAds((prev) => ({ ...prev, [campaign.id]: json as unknown as CampaignAdsData }));
+          } catch {
+            if (loadSessionRef.current !== session) return;
+            setCampaignAds((prev) => ({ ...prev, [campaign.id]: "error" }));
+          }
+          setAdsProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+        }),
+      );
+    }
+  }, []);
+
+  // ── Load campaign list (fast — 1 API call) ─────────────────────────────────
   const load = useCallback(async (forceRefresh = false) => {
+    const session = ++loadSessionRef.current;
     setLoading(true);
     setError(null);
-    setWarning(null);
     setRateLimitMinutes(null);
     setNeedsAuth(false);
+    setCampaigns([]);
+    setCampaignAds({});
+    setAdsProgress({ done: 0, total: 0 });
+
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
       let json: Record<string, unknown>;
-      try {
-        json = await res.json();
-      } catch {
-        // Vercel timeout / crash returns HTML — give a clear message
-        if (res.status === 504 || res.status === 502) {
-          throw new Error("Request timed out. Your ad account is large — click Retry to try again.");
-        }
-        throw new Error(`Server error (${res.status}). Click Retry to try again.`);
+      try { json = await res.json(); }
+      catch {
+        throw new Error(res.status === 504 || res.status === 502
+          ? "Request timed out. Click Retry."
+          : `Server error (${res.status}). Click Retry.`);
       }
       if (json.needsAuth) { setNeedsAuth(true); return; }
       if (res.status === 429 || json.rateLimitResetMinutes != null) {
-        setRateLimitMinutes((json.rateLimitResetMinutes as number | null) ?? 5);
-        if (json.error) setError(json.error as string);
+        setRateLimitMinutes((json.rateLimitResetMinutes as number) ?? 5);
         return;
       }
       if (json.error) throw new Error(json.error as string);
-      if (json.warning) setWarning(json.warning as string);
-      setData(json as unknown as GroupedAds);
-      if (json.accountId) setAccountId(json.accountId as string);
-      if (json.businessId) setBusinessId(json.businessId as string);
-      if (json.tokenExpiresIn) setTokenExpiresIn(json.tokenExpiresIn as string);
+
+      const list = (json.campaigns as MetaCampaign[]) ?? [];
+      setCampaigns(list);
+      setAccountId((json.accountId as string) ?? "");
+      setBusinessId((json.businessId as string) ?? "");
+      setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
       const allOpen: Record<string, boolean> = {};
-      Object.keys((json.campaigns ?? {}) as object).forEach((id) => (allOpen[id] = true));
+      list.forEach((c) => { allOpen[c.id] = true; });
       setExpanded(allOpen);
+
+      // Fire and forget — ads load per-campaign, no timeout possible
+      loadAllCampaignAds(list, session);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadAllCampaignAds]);
 
   useEffect(() => { load(false); }, [load]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const ae = params.get("auth_error");
+    const ae = new URLSearchParams(window.location.search).get("auth_error");
     if (ae) { setAuthError(decodeURIComponent(ae)); window.history.replaceState({}, "", "/"); }
   }, []);
 
   const toggleCampaign = (id: string) =>
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
+  // ── Computed totals (update as campaigns load) ─────────────────────────────
+  const loadedAds = Object.values(campaignAds).filter(
+    (v): v is CampaignAdsData => v !== "loading" && v !== "error",
+  );
+  const totalAds = loadedAds.reduce((n, c) => n + c.adCount, 0);
+  const totalAdSets = loadedAds.reduce((n, c) => n + Object.keys(c.adsets).length, 0);
+  const allAdsLoaded = adsProgress.total > 0 && adsProgress.done === adsProgress.total;
+
+  // ── Search ─────────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
-  const filteredCampaigns = data
-    ? Object.entries(data.campaigns).filter(([, c]) => {
-        if (!q) return true;
-        return (
-          c.campaign.name.toLowerCase().includes(q) ||
-          Object.values(c.adsets).some(
-            (a) => a.adset.name.toLowerCase().includes(q) ||
-              a.ads.some((ad) => ad.name.toLowerCase().includes(q)),
-          )
-        );
-      })
-    : [];
+  const filteredCampaigns = campaigns.filter((c) => {
+    if (!q) return true;
+    if (c.name.toLowerCase().includes(q)) return true;
+    const ads = campaignAds[c.id];
+    if (ads && ads !== "loading" && ads !== "error") {
+      return Object.values(ads.adsets).some(
+        (a) => a.adset.name.toLowerCase().includes(q) ||
+          a.ads.some((ad) => ad.name.toLowerCase().includes(q)),
+      );
+    }
+    return false;
+  });
 
   // ── Connect screen ─────────────────────────────────────────────────────────
   if (!loading && needsAuth) {
@@ -493,14 +506,8 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Preview Modal */}
       {previewAd && (
-        <PreviewModal
-          ad={previewAd}
-          accountId={accountId}
-          businessId={businessId}
-          onClose={() => setPreviewAd(null)}
-        />
+        <PreviewModal ad={previewAd} accountId={accountId} businessId={businessId} onClose={() => setPreviewAd(null)} />
       )}
 
       {/* Header */}
@@ -518,15 +525,10 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {tokenExpiresIn && (
-              <span className="text-xs text-gray-400 hidden sm:block">Token expires in {tokenExpiresIn}</span>
-            )}
-            {cachedAt && (
-              <span className="text-xs text-gray-400 hidden md:block">· data from {cachedAt.toLocaleTimeString()}</span>
-            )}
+            {tokenExpiresIn && <span className="text-xs text-gray-400 hidden sm:block">Token expires in {tokenExpiresIn}</span>}
+            {cachedAt && <span className="text-xs text-gray-400 hidden md:block">· data from {cachedAt.toLocaleTimeString()}</span>}
             <button
-              onClick={() => load(true)}
-              disabled={loading}
+              onClick={() => load(true)} disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
             >
               <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -534,22 +536,28 @@ export default function Dashboard() {
               </svg>
               Refresh
             </button>
-            <a href="/api/auth/logout" className="text-xs text-gray-400 hover:text-red-500 transition hidden sm:block">
-              Disconnect
-            </a>
+            <a href="/api/auth/logout" className="text-xs text-gray-400 hover:text-red-500 transition hidden sm:block">Disconnect</a>
           </div>
         </div>
+
+        {/* Ads loading progress bar */}
+        {!loading && adsProgress.total > 0 && !allAdsLoaded && (
+          <div className="border-t border-gray-100 px-4 sm:px-6 py-1.5 flex items-center gap-3">
+            <div className="flex-1 bg-gray-200 rounded-full h-1">
+              <div
+                className="bg-blue-500 h-1 rounded-full transition-all duration-300"
+                style={{ width: `${(adsProgress.done / adsProgress.total) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-400 whitespace-nowrap">
+              Loading {adsProgress.done}/{adsProgress.total} campaigns
+            </span>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
-        {warning && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-3">
-            <svg className="w-5 h-5 text-yellow-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <p className="text-sm text-yellow-800">{warning}</p>
-          </div>
-        )}
+        {/* Rate limit banner */}
         {rateLimitMinutes != null && (
           <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
             <svg className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -557,23 +565,17 @@ export default function Dashboard() {
             </svg>
             <div className="flex-1">
               <p className="font-medium text-orange-800 text-sm">Meta API rate limit reached</p>
-              <p className="text-orange-700 text-sm mt-0.5">
-                Your quota resets in approximately <strong>{rateLimitMinutes} minute{rateLimitMinutes !== 1 ? "s" : ""}</strong>. Please wait, then click Refresh.
-              </p>
-              {data && (
-                <p className="text-orange-600 text-xs mt-1">Showing previously cached data below.</p>
-              )}
+              <p className="text-orange-700 text-sm mt-0.5">Resets in ~<strong>{rateLimitMinutes} min</strong>. Please wait then click Refresh.</p>
             </div>
-            <button
-              onClick={() => load(false)}
-              disabled={loading}
-              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 disabled:opacity-50 transition"
-            >
+            <button onClick={() => load(false)} disabled={loading}
+              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 disabled:opacity-50 transition">
               Retry
             </button>
           </div>
         )}
-        {error && rateLimitMinutes == null && (
+
+        {/* Error banner */}
+        {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
             <svg className="w-5 h-5 text-red-500 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -582,23 +584,20 @@ export default function Dashboard() {
               <p className="font-medium text-red-800 text-sm">Failed to load ads</p>
               <p className="text-red-600 text-sm mt-0.5">{error}</p>
             </div>
-            <button
-              onClick={() => load(true)}
-              disabled={loading}
-              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-800 disabled:opacity-50 transition"
-            >
+            <button onClick={() => load(true)} disabled={loading}
+              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-800 disabled:opacity-50 transition">
               {loading ? "Retrying…" : "Retry"}
             </button>
           </div>
         )}
 
-        {/* Skeleton */}
-        {loading && !data && (
+        {/* Initial loading skeleton */}
+        {loading && (
           <div className="space-y-3">
             {[1, 2].map((i) => (
               <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
                 <div className="h-3 bg-gray-200 rounded w-1/3 mb-3" />
-                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
                   {[1, 2, 3, 4, 5, 6].map((j) => (
                     <div key={j} className="rounded-lg overflow-hidden border border-gray-100">
                       <div className="aspect-video bg-gray-200" />
@@ -614,14 +613,14 @@ export default function Dashboard() {
           </div>
         )}
 
-        {data && (
+        {!loading && campaigns.length > 0 && (
           <>
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Active Ads", value: data.totalAds, color: "text-blue-600" },
-                { label: "Campaigns", value: data.totalCampaigns, color: "text-purple-600" },
-                { label: "Ad Sets", value: data.totalAdSets, color: "text-indigo-600" },
+                { label: "Active Ads", value: allAdsLoaded ? totalAds : `${totalAds}+`, color: "text-blue-600" },
+                { label: "Campaigns", value: campaigns.length, color: "text-purple-600" },
+                { label: "Ad Sets", value: allAdsLoaded ? totalAdSets : `${totalAdSets}+`, color: "text-indigo-600" },
               ].map((s) => (
                 <div key={s.label} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
                   <p className="text-xs text-gray-500">{s.label}</p>
@@ -636,10 +635,8 @@ export default function Dashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
-                type="text"
-                placeholder="Search campaigns, ad sets, or ads..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                type="text" placeholder="Search campaigns, ad sets, or ads..."
+                value={search} onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -650,25 +647,19 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredCampaigns.map(([campaignId, campaignData]) => {
-                  const isOpen = expanded[campaignId] ?? true;
-                  const adsetList = Object.values(campaignData.adsets);
-                  const visibleAdsets = adsetList.filter((a) => {
-                    if (!q) return true;
-                    return (
-                      campaignData.campaign.name.toLowerCase().includes(q) ||
-                      a.adset.name.toLowerCase().includes(q) ||
-                      a.ads.some((ad) => ad.name.toLowerCase().includes(q))
-                    );
-                  });
+                {filteredCampaigns.map((campaign) => {
+                  const isOpen = expanded[campaign.id] ?? true;
+                  const adsData = campaignAds[campaign.id];
+                  const adsetList = adsData && adsData !== "loading" && adsData !== "error"
+                    ? Object.values(adsData.adsets) : [];
 
                   return (
-                    <div key={campaignId} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div key={campaign.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                       {/* Campaign header */}
                       <div className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition">
                         <button
                           className="flex items-center gap-2 min-w-0 flex-1 text-left"
-                          onClick={() => toggleCampaign(campaignId)}
+                          onClick={() => toggleCampaign(campaign.id)}
                         >
                           <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${isOpen ? "bg-blue-100" : "bg-gray-100"}`}>
                             <svg className={`w-3.5 h-3.5 ${isOpen ? "text-blue-600" : "text-gray-500"}`} fill="currentColor" viewBox="0 0 20 20">
@@ -676,71 +667,99 @@ export default function Dashboard() {
                             </svg>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-gray-900 truncate">{campaignData.campaign.name}</p>
+                            <p className="text-xs font-semibold text-gray-900 truncate">{campaign.name}</p>
                             <p className="text-[10px] text-gray-500 mt-0.5">
-                              {objectiveLabel(campaignData.campaign.objective)} · {adsetList.length} ad set{adsetList.length !== 1 ? "s" : ""} · {campaignData.adCount} ad{campaignData.adCount !== 1 ? "s" : ""}
+                              {objectiveLabel(campaign.objective)}
+                              {adsData === "loading" && " · loading…"}
+                              {adsData === "error" && " · failed to load"}
+                              {adsData && adsData !== "loading" && adsData !== "error" &&
+                                ` · ${adsetList.length} ad set${adsetList.length !== 1 ? "s" : ""} · ${adsData.adCount} ad${adsData.adCount !== 1 ? "s" : ""}`}
                             </p>
                           </div>
                         </button>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
-                          <StatusBadge status={campaignData.campaign.status} />
-                          <ExternalLink href={adsManagerUrl("campaign", campaignId, accountId, { businessId })} />
+                          <StatusBadge status={campaign.status} />
+                          <ExternalLink href={adsManagerUrl("campaign", campaign.id, accountId, { businessId })} />
                           <svg
                             className={`w-3.5 h-3.5 text-gray-400 transition-transform cursor-pointer ${isOpen ? "rotate-180" : ""}`}
                             fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                            onClick={() => toggleCampaign(campaignId)}
+                            onClick={() => toggleCampaign(campaign.id)}
                           >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </div>
                       </div>
 
+                      {/* Campaign body */}
                       {isOpen && (
-                        <div className="border-t border-gray-100 divide-y divide-gray-100">
-                          {visibleAdsets.map((adsetData) => {
-                            const visibleAds = adsetData.ads.filter((ad) => {
-                              if (!q) return true;
-                              return (
-                                campaignData.campaign.name.toLowerCase().includes(q) ||
-                                adsetData.adset.name.toLowerCase().includes(q) ||
-                                ad.name.toLowerCase().includes(q)
-                              );
-                            });
-                            const budget = formatBudget(adsetData.adset.daily_budget);
+                        <>
+                          {adsData === "loading" && <CampaignSkeleton />}
 
-                            return (
-                              <div key={adsetData.adset.id}>
-                                {/* Ad set row */}
-                                <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
-                                  <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
-                                    <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                                      <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-                                    </svg>
-                                  </div>
-                                  <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
-                                    <StatusBadge status={adsetData.adset.status} />
-                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId, businessId })} />
-                                  </div>
-                                </div>
+                          {adsData === "error" && (
+                            <div className="border-t border-gray-100 px-4 py-3 flex items-center gap-3">
+                              <p className="text-xs text-red-500 flex-1">Failed to load ads for this campaign.</p>
+                              <button
+                                onClick={() => retryCampaign(campaign.id)}
+                                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 transition"
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          )}
 
-                                {/* Ad cards */}
-                                <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                                  {visibleAds.map((ad) => (
-                                    <AdCard
-                                      key={ad.id}
-                                      ad={ad}
-                                      accountId={accountId}
-                                      businessId={businessId}
-                                      onPreview={setPreviewAd}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                          {adsData && adsData !== "loading" && adsData !== "error" && (
+                            <div className="border-t border-gray-100 divide-y divide-gray-100">
+                              {adsetList
+                                .filter((a) => {
+                                  if (!q) return true;
+                                  return (
+                                    campaign.name.toLowerCase().includes(q) ||
+                                    a.adset.name.toLowerCase().includes(q) ||
+                                    a.ads.some((ad) => ad.name.toLowerCase().includes(q))
+                                  );
+                                })
+                                .map((adsetData) => {
+                                  const visibleAds = adsetData.ads.filter((ad) => {
+                                    if (!q) return true;
+                                    return (
+                                      campaign.name.toLowerCase().includes(q) ||
+                                      adsetData.adset.name.toLowerCase().includes(q) ||
+                                      ad.name.toLowerCase().includes(q)
+                                    );
+                                  });
+                                  const budget = formatBudget(adsetData.adset.daily_budget);
+                                  return (
+                                    <div key={adsetData.adset.id}>
+                                      <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
+                                        <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
+                                          <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                                          </svg>
+                                        </div>
+                                        <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
+                                          <StatusBadge status={adsetData.adset.status} />
+                                          <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId: campaign.id, businessId })} />
+                                        </div>
+                                      </div>
+                                      <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                                        {visibleAds.map((ad) => (
+                                          <AdCard
+                                            key={ad.id}
+                                            ad={ad}
+                                            accountId={accountId}
+                                            businessId={businessId}
+                                            onPreview={setPreviewAd}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   );

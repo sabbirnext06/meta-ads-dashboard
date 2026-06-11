@@ -370,11 +370,9 @@ export default function Dashboard() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
-  const [adsProgress, setAdsProgress] = useState({ done: 0, total: 0 });
-  const loadSessionRef = useRef(0);
 
-  // ── Retry a single failed campaign ────────────────────────────────────────
-  const retryCampaign = useCallback(async (campaignId: string) => {
+  // ── Load a single campaign's ads on demand ────────────────────────────────
+  const loadCampaignAds = useCallback(async (campaignId: string) => {
     setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
     try {
       const res = await fetch(`/api/ads?campaignId=${campaignId}`);
@@ -386,44 +384,15 @@ export default function Dashboard() {
     }
   }, []);
 
-  // ── Load all campaigns' ads in parallel batches ────────────────────────────
-  const loadAllCampaignAds = useCallback(async (list: MetaCampaign[], session: number) => {
-    const init: Record<string, "loading"> = {};
-    list.forEach((c) => { init[c.id] = "loading"; });
-    setCampaignAds(init);
-    setAdsProgress({ done: 0, total: list.length });
-
-    const BATCH = 5;
-    for (let i = 0; i < list.length; i += BATCH) {
-      if (loadSessionRef.current !== session) return;
-      await Promise.all(
-        list.slice(i, i + BATCH).map(async (campaign) => {
-          try {
-            const res = await fetch(`/api/ads?campaignId=${campaign.id}`);
-            if (loadSessionRef.current !== session) return;
-            const json = await res.json() as Record<string, unknown>;
-            if (json.error) throw new Error(json.error as string);
-            setCampaignAds((prev) => ({ ...prev, [campaign.id]: json as unknown as CampaignAdsData }));
-          } catch {
-            if (loadSessionRef.current !== session) return;
-            setCampaignAds((prev) => ({ ...prev, [campaign.id]: "error" }));
-          }
-          setAdsProgress((prev) => ({ ...prev, done: prev.done + 1 }));
-        }),
-      );
-    }
-  }, []);
-
-  // ── Load campaign list (fast — 1 API call) ─────────────────────────────────
+  // ── Load campaign list only (fast — 1 API call) ────────────────────────────
   const load = useCallback(async (forceRefresh = false) => {
-    const session = ++loadSessionRef.current;
     setLoading(true);
     setError(null);
     setRateLimitMinutes(null);
     setNeedsAuth(false);
     setCampaigns([]);
     setCampaignAds({});
-    setAdsProgress({ done: 0, total: 0 });
+    setExpanded({});
 
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
@@ -441,24 +410,18 @@ export default function Dashboard() {
       }
       if (json.error) throw new Error(json.error as string);
 
-      const list = (json.campaigns as MetaCampaign[]) ?? [];
-      setCampaigns(list);
+      setCampaigns((json.campaigns as MetaCampaign[]) ?? []);
       setAccountId((json.accountId as string) ?? "");
       setBusinessId((json.businessId as string) ?? "");
       setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
-      const allOpen: Record<string, boolean> = {};
-      list.forEach((c) => { allOpen[c.id] = true; });
-      setExpanded(allOpen);
-
-      // Fire and forget — ads load per-campaign, no timeout possible
-      loadAllCampaignAds(list, session);
+      // All campaigns start collapsed — ads load only when user expands
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [loadAllCampaignAds]);
+  }, []);
 
   useEffect(() => { load(false); }, [load]);
 
@@ -467,16 +430,21 @@ export default function Dashboard() {
     if (ae) { setAuthError(decodeURIComponent(ae)); window.history.replaceState({}, "", "/"); }
   }, []);
 
-  const toggleCampaign = (id: string) =>
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  // Expand a campaign and load its ads if not yet fetched
+  const toggleCampaign = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const opening = !prev[id];
+      if (opening && !campaignAds[id]) loadCampaignAds(id);
+      return { ...prev, [id]: opening };
+    });
+  }, [campaignAds, loadCampaignAds]);
 
-  // ── Computed totals (update as campaigns load) ─────────────────────────────
+  // ── Computed totals ────────────────────────────────────────────────────────
   const loadedAds = Object.values(campaignAds).filter(
     (v): v is CampaignAdsData => v !== "loading" && v !== "error",
   );
   const totalAds = loadedAds.reduce((n, c) => n + c.adCount, 0);
   const totalAdSets = loadedAds.reduce((n, c) => n + Object.keys(c.adsets).length, 0);
-  const allAdsLoaded = adsProgress.total > 0 && adsProgress.done === adsProgress.total;
 
   // ── Search ─────────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
@@ -562,20 +530,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Ads loading progress bar */}
-        {!loading && adsProgress.total > 0 && !allAdsLoaded && (
-          <div className="border-t border-gray-100 px-4 sm:px-6 py-1.5 flex items-center gap-3">
-            <div className="flex-1 bg-gray-200 rounded-full h-1">
-              <div
-                className="bg-blue-500 h-1 rounded-full transition-all duration-300"
-                style={{ width: `${(adsProgress.done / adsProgress.total) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-gray-400 whitespace-nowrap">
-              Loading {adsProgress.done}/{adsProgress.total} campaigns
-            </span>
-          </div>
-        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
@@ -640,9 +594,9 @@ export default function Dashboard() {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Active Ads", value: allAdsLoaded ? totalAds : `${totalAds}+`, color: "text-blue-600" },
+                { label: "Active Ads", value: totalAds > 0 ? totalAds : "—", color: "text-blue-600" },
                 { label: "Campaigns", value: campaigns.length, color: "text-purple-600" },
-                { label: "Ad Sets", value: allAdsLoaded ? totalAdSets : `${totalAdSets}+`, color: "text-indigo-600" },
+                { label: "Ad Sets", value: totalAdSets > 0 ? totalAdSets : "—", color: "text-indigo-600" },
               ].map((s) => (
                 <div key={s.label} className="bg-white rounded-xl border border-gray-200 px-4 py-3">
                   <p className="text-xs text-gray-500">{s.label}</p>
@@ -721,7 +675,7 @@ export default function Dashboard() {
                             <div className="border-t border-gray-100 px-4 py-3 flex items-center gap-3">
                               <p className="text-xs text-red-500 flex-1">Failed to load ads for this campaign.</p>
                               <button
-                                onClick={() => retryCampaign(campaign.id)}
+                                onClick={() => loadCampaignAds(campaign.id)}
                                 className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 transition"
                               >
                                 Retry

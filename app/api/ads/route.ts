@@ -96,10 +96,19 @@ const getCachedCampaignAds = unstable_cache(
     const filter = encodeURIComponent(
       JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]),
     );
-    const ads = await fetchPaged<MetaAd>(
-      `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&filtering=${filter}&fields=${AD_FIELDS}&limit=200&access_token=${token}`,
-    );
-    return { adsets: groupByAdSet(ads), adCount: ads.length, cachedAt: Date.now() };
+    // Retry with smaller page sizes if Meta returns "please reduce data"
+    for (const limit of [100, 50]) {
+      try {
+        const ads = await fetchPaged<MetaAd>(
+          `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&filtering=${filter}&fields=${AD_FIELDS}&limit=${limit}&access_token=${token}`,
+        );
+        return { adsets: groupByAdSet(ads), adCount: ads.length, cachedAt: Date.now() };
+      } catch (err) {
+        if (err instanceof OverloadError && limit > 50) continue;
+        throw err;
+      }
+    }
+    throw new Error("Meta API rejected request. Try again later.");
   },
   ["meta-campaign-ads"],
   { revalidate: 7200, tags: ["meta-ads"] },

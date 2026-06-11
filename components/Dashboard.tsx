@@ -513,7 +513,7 @@ export default function Dashboard() {
             </div>
             <div>
               <h1 className="text-lg font-semibold text-gray-900">Meta Ads Dashboard</h1>
-              <p className="text-xs text-gray-500">Active ads · creatives overview</p>
+              <p className="text-xs text-gray-500">Ads · creatives overview</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -599,7 +599,7 @@ export default function Dashboard() {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Active Ads", value: totalAds, color: "text-blue-600" },
+                { label: "Total Ads", value: totalAds, color: "text-blue-600" },
                 { label: "Campaigns", value: campaigns.length, color: "text-purple-600" },
                 { label: "Ad Sets", value: totalAdSets, color: "text-indigo-600" },
               ].map((s) => (

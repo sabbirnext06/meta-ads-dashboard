@@ -64,9 +64,17 @@ async function fetchPaged<T>(firstUrl: string): Promise<T[]> {
 
 async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
   const es = encodeURIComponent(JSON.stringify(["ACTIVE"]));
-  return fetchPaged<MetaAd>(
-    `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&fields=${AD_FIELDS}&limit=500&access_token=${token}`,
-  );
+  for (const limit of [200, 100, 50]) {
+    try {
+      return await fetchPaged<MetaAd>(
+        `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&fields=${AD_FIELDS}&limit=${limit}&access_token=${token}`,
+      );
+    } catch (err) {
+      if (err instanceof OverloadError && limit > 50) continue;
+      throw err;
+    }
+  }
+  throw new Error("Meta API rejected request. Try again later.");
 }
 
 // ── Bulk insights fetch — ALL active ads in one stream ────────────────────────
@@ -83,7 +91,7 @@ async function fetchAllInsights(
 ): Promise<Map<string, MetaAdInsights>> {
   try {
     const records = await fetchPaged<AdInsightRecord>(
-      `${GRAPH_URL}/act_${accountId}/insights?level=ad&fields=ad_id,spend,actions&date_preset=lifetime&limit=1000&access_token=${token}`,
+      `${GRAPH_URL}/act_${accountId}/insights?level=ad&fields=ad_id,spend,actions&date_preset=lifetime&limit=500&access_token=${token}`,
     );
     console.log(`[insights] ${records.length} ad records`);
     return new Map(records.map((r) => [r.ad_id, { spend: r.spend, actions: r.actions }]));

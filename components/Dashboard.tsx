@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import type { MetaAd } from "@/types/meta";
-import type { CampaignWithAds } from "@/app/api/ads/route";
+import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type CampaignAdsData = {
+  adsets: Record<string, AdsByAdSet>;
+  adCount: number;
+  cachedAt: number;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,19 +210,22 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
   ad: MetaAd; accountId: string; businessId: string; onPreview: (ad: MetaAd) => void;
 }) {
   const [imgError, setImgError] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoRef = useRef<HTMLDivElement>(null);
   const type = adTypeInfo(ad.creative?.object_type);
   const rawUrl = ad.creative?.image_url || ad.creative?.thumbnail_url;
   const thumbnailUrl = rawUrl
     ? rawUrl.replace(/\/[sp]\d+x\d+\//, "/p600x600/").replace(/_s\.jpg/, "_n.jpg")
     : undefined;
 
-  const insight = ad.insights?.data?.[0];
-  const spend = insight?.spend ? `$${parseFloat(insight.spend).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
-  const linkClicks = (
-    insight?.actions?.find((a) => a.action_type === "link_click") ??
-    insight?.actions?.find((a) => a.action_type === "outbound_click")
-  )?.value ?? null;
-  const formattedClicks = linkClicks ? parseInt(linkClicks, 10).toLocaleString("en-US") : null;
+  useEffect(() => {
+    if (!infoOpen) return;
+    function handler(e: MouseEvent) {
+      if (infoRef.current && !infoRef.current.contains(e.target as Node)) setInfoOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [infoOpen]);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
@@ -254,25 +262,44 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
           <p className="text-[11px] font-medium text-gray-900 line-clamp-2 leading-snug">{ad.name}</p>
           <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">ID: {ad.id}</p>
         </div>
-        <div className="mt-auto pt-1.5 border-t border-gray-100 flex items-center gap-1.5">
-          <div className="flex-1 flex items-center gap-1 min-w-0">
-            {spend ? (
-              <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                {spend}
-              </span>
-            ) : (
-              <span className="text-[10px] text-gray-300">—</span>
-            )}
-            {formattedClicks && (
-              <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                {formattedClicks} clicks
-              </span>
+        <div className="mt-auto pt-1.5 border-t border-gray-100 flex gap-1.5">
+          <div className="relative flex-1" ref={infoRef}>
+            <button
+              onClick={() => setInfoOpen((v) => !v)}
+              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md w-full justify-center transition ${infoOpen ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+            >
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              Info
+            </button>
+            {infoOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 z-20 bg-white border border-gray-200 rounded-xl shadow-xl p-3 space-y-2.5">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Campaign</p>
+                  <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.campaign.name}</p>
+                  <ExternalLink href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })} label="Open in Ads Manager" />
+                </div>
+                <div className="border-t border-gray-100" />
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Ad Set</p>
+                  <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.name}</p>
+                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })} label="Open in Ads Manager" />
+                </div>
+                <div className="border-t border-gray-100" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Objective</span>
+                  <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
+                    {objectiveLabel(ad.adset.campaign.objective)}
+                  </span>
+                </div>
+              </div>
             )}
           </div>
           <a
             href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
             target="_blank" rel="noreferrer" title="Open ad in Ads Manager"
-            className="flex items-center justify-center px-2 py-1 rounded-md bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-500 transition shrink-0"
+            className="flex items-center justify-center px-2 py-1 rounded-md bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-500 transition"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -284,10 +311,34 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
   );
 }
 
+// ─── Campaign Skeleton ────────────────────────────────────────────────────────
+
+function CampaignSkeleton() {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden animate-pulse">
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        <div className="w-6 h-6 rounded-md bg-gray-200 shrink-0" />
+        <div className="flex-1 space-y-1.5">
+          <div className="h-3 bg-gray-200 rounded w-2/3" />
+          <div className="h-2 bg-gray-100 rounded w-1/3" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
+const BATCH = 5;
+
+function isLoaded(d: CampaignAdsData | "loading" | "error" | undefined): d is CampaignAdsData {
+  return typeof d === "object" && d !== null;
+}
+
 export default function Dashboard() {
-  const [campaigns, setCampaigns] = useState<CampaignWithAds[]>([]);
+  const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
+  const [campaignAds, setCampaignAds] = useState<Record<string, CampaignAdsData | "loading" | "error">>({});
+  const [loadingProgress, setLoadingProgress] = useState<{ done: number; total: number } | null>(null);
   const [accountId, setAccountId] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -301,14 +352,29 @@ export default function Dashboard() {
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
 
-  // ── Single fetch: all campaigns + all ads + all insights ──────────────────
+  const loadCampaignAds = useCallback(async (campaignId: string) => {
+    setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
+    try {
+      const res = await fetch(`/api/ads?campaignId=${campaignId}`);
+      let json: Record<string, unknown>;
+      try { json = await res.json(); }
+      catch { throw new Error(`Server error (${res.status})`); }
+      if (json.error) throw new Error(json.error as string);
+      setCampaignAds((prev) => ({ ...prev, [campaignId]: json as unknown as CampaignAdsData }));
+    } catch {
+      setCampaignAds((prev) => ({ ...prev, [campaignId]: "error" }));
+    }
+  }, []);
+
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     setRateLimitMinutes(null);
     setNeedsAuth(false);
     setCampaigns([]);
+    setCampaignAds({});
     setExpanded({});
+    setLoadingProgress(null);
 
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
@@ -319,30 +385,49 @@ export default function Dashboard() {
           ? "Request timed out. Click Retry."
           : `Server error (${res.status}). Click Retry.`);
       }
-      if (json.needsAuth) { setNeedsAuth(true); return; }
+      if (json.needsAuth) { setNeedsAuth(true); setLoading(false); return; }
       if (res.status === 429 || json.rateLimitResetMinutes != null) {
         setRateLimitMinutes((json.rateLimitResetMinutes as number) ?? 5);
+        setLoading(false);
         return;
       }
       if (json.error) throw new Error(json.error as string);
 
-      const list = (json.campaigns as CampaignWithAds[]) ?? [];
+      const list = (json.campaigns as MetaCampaign[]) ?? [];
       setCampaigns(list);
       setAccountId((json.accountId as string) ?? "");
       setBusinessId((json.businessId as string) ?? "");
       setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
+      setLoading(false);
 
-      // All campaigns arrive fully loaded — auto-expand all
+      // Auto-expand all campaigns
       const exp: Record<string, boolean> = {};
-      list.forEach((c) => { exp[c.campaign.id] = true; });
+      list.forEach((c) => { exp[c.id] = true; });
       setExpanded(exp);
+
+      // Background batch=5 per-campaign load
+      const total = list.length;
+      if (total === 0) return;
+      setLoadingProgress({ done: 0, total });
+
+      let done = 0;
+      for (let i = 0; i < total; i += BATCH) {
+        const batch = list.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async (c) => {
+            await loadCampaignAds(c.id);
+            done++;
+            setLoadingProgress({ done, total });
+          }),
+        );
+      }
+      setLoadingProgress(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadCampaignAds]);
 
   useEffect(() => { load(false); }, [load]);
 
@@ -355,16 +440,24 @@ export default function Dashboard() {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  // ── Computed totals ────────────────────────────────────────────────────────
-  const totalAds = campaigns.reduce((n, c) => n + c.adCount, 0);
-  const totalAdSets = campaigns.reduce((n, c) => n + Object.keys(c.adsets).length, 0);
+  // ── Computed totals (from loaded data) ────────────────────────────────────
+  const totalAds = campaigns.reduce((n, c) => {
+    const d = campaignAds[c.id];
+    return n + (isLoaded(d) ? d.adCount : 0);
+  }, 0);
+  const totalAdSets = campaigns.reduce((n, c) => {
+    const d = campaignAds[c.id];
+    return n + (isLoaded(d) ? Object.keys(d.adsets).length : 0);
+  }, 0);
 
   // ── Search ─────────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
-  const filteredCampaigns = campaigns.filter(({ campaign, adsets }) => {
+  const filteredCampaigns = campaigns.filter((campaign) => {
     if (!q) return true;
     if (campaign.name.toLowerCase().includes(q)) return true;
-    return Object.values(adsets).some(
+    const d = campaignAds[campaign.id];
+    if (!isLoaded(d)) return false;
+    return Object.values(d.adsets).some(
       (a) => a.adset.name.toLowerCase().includes(q) ||
         a.ads.some((ad) => ad.name.toLowerCase().includes(q)),
     );
@@ -427,10 +520,10 @@ export default function Dashboard() {
             {tokenExpiresIn && <span className="text-xs text-gray-400 hidden sm:block">Token expires in {tokenExpiresIn}</span>}
             {cachedAt && <span className="text-xs text-gray-400 hidden md:block">· data from {cachedAt.toLocaleTimeString()}</span>}
             <button
-              onClick={() => load(true)} disabled={loading}
+              onClick={() => load(true)} disabled={loading || loadingProgress !== null}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
             >
-              <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-3.5 h-3.5 ${loading || loadingProgress !== null ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Refresh
@@ -439,6 +532,22 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Progress bar */}
+        {loadingProgress && (
+          <div className="border-t border-gray-100">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3">
+              <div className="flex-1 bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                  style={{ width: `${(loadingProgress.done / loadingProgress.total) * 100}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-gray-500 shrink-0 tabular-nums">
+                Loading {loadingProgress.done} / {loadingProgress.total} campaigns
+              </span>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 space-y-4">
@@ -476,24 +585,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Initial loading skeleton */}
+        {/* Initial loading skeleton — campaign list fetch */}
         {loading && (
           <div className="space-y-3">
-            {[1, 2].map((i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
-                <div className="h-3 bg-gray-200 rounded w-1/3 mb-3" />
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                  {[1, 2, 3, 4, 5, 6].map((j) => (
-                    <div key={j} className="rounded-lg overflow-hidden border border-gray-100">
-                      <div className="aspect-video bg-gray-200" />
-                      <div className="p-2 space-y-1.5">
-                        <div className="h-2.5 bg-gray-200 rounded w-3/4" />
-                        <div className="h-2 bg-gray-100 rounded w-1/2" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {[1, 2, 3].map((i) => (
+              <CampaignSkeleton key={i} />
             ))}
           </div>
         )}
@@ -532,16 +628,9 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredCampaigns.map(({ campaign, adsets, adCount }) => {
+                {filteredCampaigns.map((campaign) => {
                   const isOpen = expanded[campaign.id] ?? true;
-                  const adsetList = Object.values(adsets).filter((a) => {
-                    if (!q) return true;
-                    return (
-                      campaign.name.toLowerCase().includes(q) ||
-                      a.adset.name.toLowerCase().includes(q) ||
-                      a.ads.some((ad) => ad.name.toLowerCase().includes(q))
-                    );
-                  });
+                  const adsData = campaignAds[campaign.id];
 
                   return (
                     <div key={campaign.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -559,7 +648,10 @@ export default function Dashboard() {
                           <div className="min-w-0">
                             <p className="text-xs font-semibold text-gray-900 truncate">{campaign.name}</p>
                             <p className="text-[10px] text-gray-500 mt-0.5">
-                              {objectiveLabel(campaign.objective)} · {Object.keys(adsets).length} ad set{Object.keys(adsets).length !== 1 ? "s" : ""} · {adCount} ad{adCount !== 1 ? "s" : ""}
+                              {objectiveLabel(campaign.objective)}
+                              {isLoaded(adsData) && (
+                                <> · {Object.keys(adsData.adsets).length} ad set{Object.keys(adsData.adsets).length !== 1 ? "s" : ""} · {adsData.adCount} ad{adsData.adCount !== 1 ? "s" : ""}</>
+                              )}
                             </p>
                           </div>
                         </button>
@@ -578,46 +670,85 @@ export default function Dashboard() {
 
                       {/* Campaign body */}
                       {isOpen && (
-                        <div className="border-t border-gray-100 divide-y divide-gray-100">
-                          {adsetList.map((adsetData) => {
-                            const visibleAds = adsetData.ads.filter((ad) => {
-                              if (!q) return true;
-                              return (
-                                campaign.name.toLowerCase().includes(q) ||
-                                adsetData.adset.name.toLowerCase().includes(q) ||
-                                ad.name.toLowerCase().includes(q)
-                              );
-                            });
-                            const budget = formatBudget(adsetData.adset.daily_budget);
-                            return (
-                              <div key={adsetData.adset.id}>
-                                <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
-                                  <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
-                                    <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
-                                      <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
-                                    </svg>
-                                  </div>
-                                  <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
-                                    <StatusBadge status={adsetData.adset.status} />
-                                    <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId: campaign.id, businessId })} />
+                        <div className="border-t border-gray-100">
+                          {adsData === "loading" && (
+                            <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                              {[1, 2, 3].map((i) => (
+                                <div key={i} className="rounded-lg overflow-hidden border border-gray-100 animate-pulse">
+                                  <div className="aspect-video bg-gray-200" />
+                                  <div className="p-2 space-y-1.5">
+                                    <div className="h-2.5 bg-gray-200 rounded w-3/4" />
+                                    <div className="h-2 bg-gray-100 rounded w-1/2" />
                                   </div>
                                 </div>
-                                <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-                                  {visibleAds.map((ad) => (
-                                    <AdCard
-                                      key={ad.id}
-                                      ad={ad}
-                                      accountId={accountId}
-                                      businessId={businessId}
-                                      onPreview={setPreviewAd}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
+                              ))}
+                            </div>
+                          )}
+
+                          {adsData === "error" && (
+                            <div className="px-4 py-3 flex items-center gap-3">
+                              <p className="text-sm text-red-600 flex-1">Failed to load ads for this campaign.</p>
+                              <button
+                                onClick={() => loadCampaignAds(campaign.id)}
+                                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-800 transition shrink-0"
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          )}
+
+                          {isLoaded(adsData) && (
+                            <div className="divide-y divide-gray-100">
+                              {Object.values(adsData.adsets)
+                                .filter((a) => {
+                                  if (!q) return true;
+                                  return (
+                                    campaign.name.toLowerCase().includes(q) ||
+                                    a.adset.name.toLowerCase().includes(q) ||
+                                    a.ads.some((ad) => ad.name.toLowerCase().includes(q))
+                                  );
+                                })
+                                .map((adsetData) => {
+                                  const visibleAds = adsetData.ads.filter((ad) => {
+                                    if (!q) return true;
+                                    return (
+                                      campaign.name.toLowerCase().includes(q) ||
+                                      adsetData.adset.name.toLowerCase().includes(q) ||
+                                      ad.name.toLowerCase().includes(q)
+                                    );
+                                  });
+                                  const budget = formatBudget(adsetData.adset.daily_budget);
+                                  return (
+                                    <div key={adsetData.adset.id}>
+                                      <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50">
+                                        <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center shrink-0">
+                                          <svg className="w-2.5 h-2.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                                          </svg>
+                                        </div>
+                                        <span className="text-[11px] font-medium text-gray-700 flex-1 truncate">{adsetData.adset.name}</span>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          {budget && <span className="text-[10px] text-gray-500">{budget}</span>}
+                                          <StatusBadge status={adsetData.adset.status} />
+                                          <ExternalLink href={adsManagerUrl("adset", adsetData.adset.id, accountId, { campaignId: campaign.id, businessId })} />
+                                        </div>
+                                      </div>
+                                      <div className="px-4 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                                        {visibleAds.map((ad) => (
+                                          <AdCard
+                                            key={ad.id}
+                                            ad={ad}
+                                            accountId={accountId}
+                                            businessId={businessId}
+                                            onPreview={setPreviewAd}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

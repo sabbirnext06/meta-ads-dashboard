@@ -209,9 +209,7 @@ function PreviewModal({ ad, accountId, businessId, onClose }: {
 function AdCard({ ad, accountId, businessId, onPreview }: {
   ad: MetaAd; accountId: string; businessId: string; onPreview: (ad: MetaAd) => void;
 }) {
-  const [infoOpen, setInfoOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
-  const infoRef = useRef<HTMLDivElement>(null);
   const type = adTypeInfo(ad.creative?.object_type);
   const rawUrl = ad.creative?.image_url || ad.creative?.thumbnail_url;
   const thumbnailUrl = rawUrl
@@ -225,15 +223,6 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
     insight?.actions?.find((a) => a.action_type === "outbound_click")
   )?.value ?? null;
   const formattedClicks = linkClicks ? parseInt(linkClicks, 10).toLocaleString("en-US") : null;
-
-  useEffect(() => {
-    if (!infoOpen) return;
-    function handler(e: MouseEvent) {
-      if (infoRef.current && !infoRef.current.contains(e.target as Node)) setInfoOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [infoOpen]);
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
@@ -269,59 +258,26 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
         <div>
           <p className="text-[11px] font-medium text-gray-900 line-clamp-2 leading-snug">{ad.name}</p>
           <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">ID: {ad.id}</p>
-          {(spend || formattedClicks) && (
-            <div className="flex gap-2 mt-1">
-              {spend && (
-                <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                  {spend} spent
-                </span>
-              )}
-              {formattedClicks && (
-                <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
-                  {formattedClicks} clicks
-                </span>
-              )}
-            </div>
-          )}
         </div>
-        <div className="mt-auto pt-1.5 border-t border-gray-100 flex gap-1.5">
-          <div className="relative flex-1" ref={infoRef}>
-            <button
-              onClick={() => setInfoOpen((v) => !v)}
-              className={`flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md w-full justify-center transition ${infoOpen ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-            >
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              Info
-            </button>
-            {infoOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 z-20 bg-white border border-gray-200 rounded-xl shadow-xl p-3 space-y-2.5">
-                <div>
-                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Campaign</p>
-                  <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.campaign.name}</p>
-                  <ExternalLink href={adsManagerUrl("campaign", ad.adset.campaign.id, accountId, { businessId })} label="Open in Ads Manager" />
-                </div>
-                <div className="border-t border-gray-100" />
-                <div>
-                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Ad Set</p>
-                  <p className="text-xs font-medium text-gray-800 leading-snug">{ad.adset.name}</p>
-                  <ExternalLink href={adsManagerUrl("adset", ad.adset.id, accountId, { campaignId: ad.adset.campaign.id, businessId })} label="Open in Ads Manager" />
-                </div>
-                <div className="border-t border-gray-100" />
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-400">Objective</span>
-                  <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
-                    {objectiveLabel(ad.adset.campaign.objective)}
-                  </span>
-                </div>
-              </div>
+        <div className="mt-auto pt-1.5 border-t border-gray-100 flex items-center gap-1.5">
+          <div className="flex-1 flex items-center gap-1 min-w-0">
+            {spend ? (
+              <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                {spend}
+              </span>
+            ) : (
+              <span className="text-[10px] text-gray-300">—</span>
+            )}
+            {formattedClicks && (
+              <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                {formattedClicks} clicks
+              </span>
             )}
           </div>
           <a
             href={adsManagerUrl("ad", ad.id, accountId, { campaignId: ad.adset.campaign.id, adsetId: ad.adset.id, businessId })}
             target="_blank" rel="noreferrer" title="Open ad in Ads Manager"
-            className="flex items-center justify-center px-2 py-1 rounded-md bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-500 transition"
+            className="flex items-center justify-center px-2 py-1 rounded-md bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-500 transition shrink-0"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />

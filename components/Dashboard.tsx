@@ -327,6 +327,105 @@ function CampaignSkeleton() {
   );
 }
 
+// ─── Delivery Filter ─────────────────────────────────────────────────────────
+
+type StatusOption = { value: string; label: string; dotColor: "green" | "gray" | "outline" };
+
+const CAMPAIGN_FILTER_OPTIONS: StatusOption[] = [
+  { value: "ACTIVE", label: "Active", dotColor: "green" },
+  { value: "PAUSED", label: "Paused", dotColor: "gray" },
+];
+const ADSET_FILTER_OPTIONS: StatusOption[] = [
+  { value: "ACTIVE", label: "Active", dotColor: "green" },
+  { value: "PAUSED", label: "Paused", dotColor: "gray" },
+];
+const AD_FILTER_OPTIONS: StatusOption[] = [
+  { value: "active", label: "Active", dotColor: "green" },
+  { value: "paused", label: "Paused", dotColor: "gray" },
+  { value: "campaign_paused", label: "Campaign Paused", dotColor: "gray" },
+  { value: "adset_paused", label: "Ad Set Paused", dotColor: "gray" },
+];
+
+function adDelivery(ad: MetaAd): string {
+  if (ad.status === "PAUSED") return "paused";
+  if (ad.adset.campaign.status === "PAUSED") return "campaign_paused";
+  if (ad.adset.status === "PAUSED") return "adset_paused";
+  return "active";
+}
+
+function StatusDot({ color }: { color: "green" | "gray" | "outline" }) {
+  if (color === "green") return <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shrink-0" />;
+  if (color === "outline") return <span className="w-2.5 h-2.5 rounded-full border-2 border-gray-400 inline-block shrink-0" />;
+  return <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block shrink-0" />;
+}
+
+function DeliveryFilter({ label, options, selected, onChange }: {
+  label: string;
+  options: StatusOption[];
+  selected: Set<string>;
+  onChange: (v: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const toggle = (value: string) => {
+    const next = new Set(selected);
+    if (next.has(value)) { if (next.size > 1) next.delete(value); }
+    else next.add(value);
+    onChange(next);
+  };
+
+  const allSelected = options.every((o) => selected.has(o.value));
+  const btnLabel = allSelected ? "All" : `${selected.size} option${selected.size !== 1 ? "s" : ""} selected`;
+
+  return (
+    <div className="relative flex items-center" ref={ref}>
+      <div className={`flex items-center border rounded-lg overflow-hidden text-xs transition ${open ? "border-blue-500 shadow-sm" : "border-gray-300"}`}>
+        <span className="px-2.5 py-1.5 text-gray-700 font-medium bg-white border-r border-gray-300 whitespace-nowrap">{label}</span>
+        <span className="px-2 py-1.5 text-gray-500 bg-white border-r border-gray-300">is</span>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 whitespace-nowrap transition ${open ? "bg-blue-50 text-blue-700" : "bg-white text-gray-700 hover:bg-gray-50"}`}
+        >
+          <span>{btnLabel}</span>
+          <svg className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-40 bg-white border border-gray-200 rounded-xl shadow-xl py-1 min-w-[200px]">
+          {options.map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer ${selected.has(opt.value) ? "bg-blue-50/50" : ""}`}
+            >
+              <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition ${selected.has(opt.value) ? "bg-blue-600 border-blue-600" : "border-gray-300"}`}>
+                {selected.has(opt.value) && (
+                  <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+              <StatusDot color={opt.dotColor} />
+              <span className="text-sm text-gray-700">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 const BATCH = 5;
@@ -351,6 +450,9 @@ export default function Dashboard() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
+  const [filterCampaign, setFilterCampaign] = useState(() => new Set(["ACTIVE", "PAUSED"]));
+  const [filterAdSet, setFilterAdSet] = useState(() => new Set(["ACTIVE", "PAUSED"]));
+  const [filterAd, setFilterAd] = useState(() => new Set(["active", "paused", "campaign_paused", "adset_paused"]));
 
   const loadCampaignAds = useCallback(async (campaignId: string) => {
     setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
@@ -453,6 +555,7 @@ export default function Dashboard() {
   // ── Search ─────────────────────────────────────────────────────────────────
   const q = search.toLowerCase();
   const filteredCampaigns = campaigns.filter((campaign) => {
+    if (!filterCampaign.has(campaign.status)) return false;
     if (!q) return true;
     if (campaign.name.toLowerCase().includes(q)) return true;
     const d = campaignAds[campaign.id];
@@ -610,6 +713,28 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {/* Delivery Filters */}
+            <div className="flex flex-wrap gap-2">
+              <DeliveryFilter
+                label="Campaign Delivery"
+                options={CAMPAIGN_FILTER_OPTIONS}
+                selected={filterCampaign}
+                onChange={setFilterCampaign}
+              />
+              <DeliveryFilter
+                label="Ad Set Delivery"
+                options={ADSET_FILTER_OPTIONS}
+                selected={filterAdSet}
+                onChange={setFilterAdSet}
+              />
+              <DeliveryFilter
+                label="Ad Delivery"
+                options={AD_FILTER_OPTIONS}
+                selected={filterAd}
+                onChange={setFilterAd}
+              />
+            </div>
+
             {/* Search */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -701,6 +826,7 @@ export default function Dashboard() {
                             <div className="divide-y divide-gray-100">
                               {Object.values(adsData.adsets)
                                 .filter((a) => {
+                                  if (!filterAdSet.has(a.adset.status)) return false;
                                   if (!q) return true;
                                   return (
                                     campaign.name.toLowerCase().includes(q) ||
@@ -710,6 +836,7 @@ export default function Dashboard() {
                                 })
                                 .map((adsetData) => {
                                   const visibleAds = adsetData.ads.filter((ad) => {
+                                    if (!filterAd.has(adDelivery(ad))) return false;
                                     if (!q) return true;
                                     return (
                                       campaign.name.toLowerCase().includes(q) ||

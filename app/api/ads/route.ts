@@ -120,20 +120,19 @@ interface AdInsightRecord {
 }
 
 async function fetchCampaignInsights(
-  accountId: string,
   token: string,
   campaignId: string,
 ): Promise<Map<string, MetaAdInsights>> {
   try {
-    const filter = encodeURIComponent(
-      JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]),
-    );
+    // Use the campaign-level insights endpoint — more reliable than account-level filtering
     const records = await fetchPaged<AdInsightRecord>(
-      `${GRAPH_URL}/act_${accountId}/insights?level=ad&filtering=${filter}&fields=ad_id,spend,actions&date_preset=lifetime&limit=500&access_token=${token}`,
+      `${GRAPH_URL}/${campaignId}/insights?level=ad&fields=ad_id,spend,actions&date_preset=lifetime&limit=500&access_token=${token}`,
     );
+    console.log(`[insights] campaign ${campaignId}: ${records.length} ad records`);
     return new Map(records.map((r) => [r.ad_id, { spend: r.spend, actions: r.actions }]));
-  } catch {
-    return new Map(); // insights are supplementary — never block ad display
+  } catch (err) {
+    console.error(`[insights] campaign ${campaignId} failed:`, err instanceof Error ? err.message : err);
+    return new Map();
   }
 }
 
@@ -142,13 +141,13 @@ const getCachedCampaignAds = unstable_cache(
     // Run ads and insights in parallel — each call is now lightweight
     const [ads, insightsMap] = await Promise.all([
       fetchCampaignAds(accountId, token, campaignId),
-      fetchCampaignInsights(accountId, token, campaignId),
+      fetchCampaignInsights(token, campaignId),
     ]);
     const adsWithInsights = ads.map((ad) => ({
       ...ad,
       insights: insightsMap.has(ad.id) ? { data: [insightsMap.get(ad.id)!] } : undefined,
     }));
-    return { adsets: groupByAdSet(adsWithInsights), adCount: ads.length, cachedAt: Date.now() };
+    return { adsets: groupByAdSet(adsWithInsights), adCount: ads.length, insightsCount: insightsMap.size, cachedAt: Date.now() };
   },
   ["meta-campaign-ads"],
   { revalidate: 7200, tags: ["meta-ads"] },

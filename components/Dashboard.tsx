@@ -218,6 +218,14 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
     ? rawUrl.replace(/\/[sp]\d+x\d+\//, "/p600x600/").replace(/_s\.jpg/, "_n.jpg")
     : undefined;
 
+  const insight = ad.insights?.data?.[0];
+  const spend = insight?.spend ? `$${parseFloat(insight.spend).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null;
+  const linkClicks = (
+    insight?.actions?.find((a) => a.action_type === "link_click") ??
+    insight?.actions?.find((a) => a.action_type === "outbound_click")
+  )?.value ?? null;
+  const formattedClicks = linkClicks ? parseInt(linkClicks, 10).toLocaleString("en-US") : null;
+
   useEffect(() => {
     if (!infoOpen) return;
     function handler(e: MouseEvent) {
@@ -261,6 +269,20 @@ function AdCard({ ad, accountId, businessId, onPreview }: {
         <div>
           <p className="text-[11px] font-medium text-gray-900 line-clamp-2 leading-snug">{ad.name}</p>
           <p className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">ID: {ad.id}</p>
+          {(spend || formattedClicks) && (
+            <div className="flex gap-2 mt-1">
+              {spend && (
+                <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                  {spend} spent
+                </span>
+              )}
+              {formattedClicks && (
+                <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
+                  {formattedClicks} clicks
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="mt-auto pt-1.5 border-t border-gray-100 flex gap-1.5">
           <div className="relative flex-1" ref={infoRef}>

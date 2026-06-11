@@ -13,7 +13,8 @@ const CAMPAIGN_FIELDS = "id,name,status,objective";
 // Per-campaign: full ad data in a single pass (each campaign is small enough)
 const AD_FIELDS =
   "id,name,status,creative{id,object_type,thumbnail_url,image_url}," +
-  "adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
+  "adset{id,name,status,daily_budget,campaign{id,name,status,objective}}," +
+  "insights.date_preset(lifetime){spend,actions}";
 
 // ── Error types ───────────────────────────────────────────────────────────────
 

@@ -21,12 +21,18 @@ export interface MetaCreative {
   image_url?: string;
 }
 
+export interface MetaAdInsights {
+  spend?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+}
+
 export interface MetaAd {
   id: string;
   name: string;
   status: string;
   creative?: MetaCreative;
   adset: MetaAdSet;
+  insights?: { data: MetaAdInsights[] };
 }
 
 export interface AdsByAdSet {

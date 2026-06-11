@@ -359,6 +359,7 @@ export default function Dashboard() {
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [campaignAds, setCampaignAds] = useState<Record<string, CampaignAdsData | "loading" | "error">>({});
   const [campaignErrors, setCampaignErrors] = useState<Record<string, string>>({});
+  const [loadingProgress, setLoadingProgress] = useState<{ done: number; total: number } | null>(null);
   const [accountId, setAccountId] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -398,6 +399,7 @@ export default function Dashboard() {
     setCampaignAds({});
     setCampaignErrors({});
     setExpanded({});
+    setLoadingProgress(null);
 
     try {
       const res = await fetch(forceRefresh ? "/api/ads?refresh=true" : "/api/ads");
@@ -415,18 +417,40 @@ export default function Dashboard() {
       }
       if (json.error) throw new Error(json.error as string);
 
-      setCampaigns((json.campaigns as MetaCampaign[]) ?? []);
+      const list = (json.campaigns as MetaCampaign[]) ?? [];
+      setCampaigns(list);
       setAccountId((json.accountId as string) ?? "");
       setBusinessId((json.businessId as string) ?? "");
       setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
-      // All campaigns start collapsed — ads load only when user expands
+
+      if (list.length > 0) {
+        // Auto-expand the first 20 so ads are visible immediately
+        const autoExpanded: Record<string, boolean> = {};
+        list.slice(0, 20).forEach((c) => { autoExpanded[c.id] = true; });
+        setExpanded(autoExpanded);
+
+        // Batch-load all campaigns in the background (20 concurrent)
+        const ids = list.map((c) => c.id);
+        const BATCH = 20;
+        setLoadingProgress({ done: 0, total: ids.length });
+        (async () => {
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const batch = ids.slice(i, i + BATCH);
+            await Promise.all(batch.map((id) => loadCampaignAds(id)));
+            setLoadingProgress((prev) =>
+              prev ? { done: Math.min(i + BATCH, ids.length), total: ids.length } : null,
+            );
+          }
+          setLoadingProgress(null);
+        })();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadCampaignAds]);
 
   useEffect(() => { load(false); }, [load]);
 
@@ -621,6 +645,26 @@ export default function Dashboard() {
                 className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
+
+            {/* Background loading progress */}
+            {loadingProgress && (
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-gray-500">Loading ad creatives…</span>
+                    <span className="text-xs text-gray-400 tabular-nums">
+                      {loadingProgress.done} / {loadingProgress.total} campaigns
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1">
+                    <div
+                      className="bg-blue-500 h-1 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round((loadingProgress.done / loadingProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {filteredCampaigns.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">

@@ -377,6 +377,7 @@ export default function Dashboard() {
     try {
       const res = await fetch(`/api/ads?campaignId=${campaignId}`);
       const json = await res.json() as Record<string, unknown>;
+      if (json.needsAuth) { setNeedsAuth(true); return; }
       if (json.error) throw new Error(json.error as string);
       setCampaignAds((prev) => ({ ...prev, [campaignId]: json as unknown as CampaignAdsData }));
     } catch {
@@ -624,7 +625,7 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-4">
                 {filteredCampaigns.map((campaign) => {
-                  const isOpen = expanded[campaign.id] ?? true;
+                  const isOpen = expanded[campaign.id] ?? false;
                   const adsData = campaignAds[campaign.id];
                   const adsetList = adsData && adsData !== "loading" && adsData !== "error"
                     ? Object.values(adsData.adsets) : [];

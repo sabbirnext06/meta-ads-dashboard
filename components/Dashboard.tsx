@@ -425,9 +425,9 @@ export default function Dashboard() {
       setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
 
       if (list.length > 0) {
-        // Auto-expand the first 20 so ads are visible immediately
+        // Auto-expand all campaigns
         const autoExpanded: Record<string, boolean> = {};
-        list.slice(0, 20).forEach((c) => { autoExpanded[c.id] = true; });
+        list.forEach((c) => { autoExpanded[c.id] = true; });
         setExpanded(autoExpanded);
 
         // Batch-load all campaigns in the background (20 concurrent)

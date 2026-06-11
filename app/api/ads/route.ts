@@ -63,11 +63,9 @@ async function fetchPaged<T>(firstUrl: string): Promise<T[]> {
 
 // ── Campaign list (fast initial load — 1 API call) ────────────────────────────
 
-const STATUSES = ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"];
-
 const getCachedCampaigns = unstable_cache(
   async (accountId: string, token: string) => {
-    const es = encodeURIComponent(JSON.stringify(["ACTIVE", "PAUSED"]));
+    const es = encodeURIComponent(JSON.stringify(["ACTIVE"]));
     const campaigns = await fetchPaged<MetaCampaign>(
       `${GRAPH_URL}/act_${accountId}/campaigns?effective_status=${es}&fields=${CAMPAIGN_FIELDS}&limit=500&access_token=${token}`,
     );
@@ -91,7 +89,7 @@ function groupByAdSet(ads: MetaAd[]): Record<string, AdsByAdSet> {
 
 const getCachedCampaignAds = unstable_cache(
   async (accountId: string, token: string, campaignId: string) => {
-    const es = encodeURIComponent(JSON.stringify(STATUSES));
+    const es = encodeURIComponent(JSON.stringify(["ACTIVE"]));
     const filter = encodeURIComponent(
       JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]),
     );

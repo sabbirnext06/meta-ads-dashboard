@@ -358,6 +358,7 @@ function CampaignSkeleton() {
 export default function Dashboard() {
   const [campaigns, setCampaigns] = useState<MetaCampaign[]>([]);
   const [campaignAds, setCampaignAds] = useState<Record<string, CampaignAdsData | "loading" | "error">>({});
+  const [campaignErrors, setCampaignErrors] = useState<Record<string, string>>({});
   const [accountId, setAccountId] = useState("");
   const [businessId, setBusinessId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -380,7 +381,9 @@ export default function Dashboard() {
       if (json.needsAuth) { setNeedsAuth(true); return; }
       if (json.error) throw new Error(json.error as string);
       setCampaignAds((prev) => ({ ...prev, [campaignId]: json as unknown as CampaignAdsData }));
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      setCampaignErrors((prev) => ({ ...prev, [campaignId]: msg }));
       setCampaignAds((prev) => ({ ...prev, [campaignId]: "error" }));
     }
   }, []);
@@ -393,6 +396,7 @@ export default function Dashboard() {
     setNeedsAuth(false);
     setCampaigns([]);
     setCampaignAds({});
+    setCampaignErrors({});
     setExpanded({});
 
     try {
@@ -674,10 +678,15 @@ export default function Dashboard() {
 
                           {adsData === "error" && (
                             <div className="border-t border-gray-100 px-4 py-3 flex items-center gap-3">
-                              <p className="text-xs text-red-500 flex-1">Failed to load ads for this campaign.</p>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-red-500">Failed to load ads for this campaign.</p>
+                                {campaignErrors[campaign.id] && (
+                                  <p className="text-[10px] text-red-400 mt-0.5 truncate">{campaignErrors[campaign.id]}</p>
+                                )}
+                              </div>
                               <button
                                 onClick={() => loadCampaignAds(campaign.id)}
-                                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 transition"
+                                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 transition shrink-0"
                               >
                                 Retry
                               </button>

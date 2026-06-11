@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { getValidToken, readTokenData, tokenExpiresIn } from "@/lib/token";
-import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
+import type { MetaAd, MetaCampaign, AdsByAdSet, MetaAdInsights } from "@/types/meta";
 
 export const maxDuration = 60;
 
@@ -10,11 +10,10 @@ const GRAPH_URL = "https://graph.facebook.com/v21.0";
 // Initial load: campaign metadata only — 1–2 API calls, always fast
 const CAMPAIGN_FIELDS = "id,name,status,objective";
 
-// Per-campaign: full ad data in a single pass (each campaign is small enough)
+// Insights NOT nested here — fetched separately in parallel so each request stays lightweight
 const AD_FIELDS =
   "id,name,status,creative{id,object_type,thumbnail_url,image_url}," +
-  "adset{id,name,status,daily_budget,campaign{id,name,status,objective}}," +
-  "insights.date_preset(lifetime){spend,actions}";
+  "adset{id,name,status,daily_budget,campaign{id,name,status,objective}}";
 
 // ── Error types ───────────────────────────────────────────────────────────────
 
@@ -90,25 +89,66 @@ function groupByAdSet(ads: MetaAd[]): Record<string, AdsByAdSet> {
   return out;
 }
 
-const getCachedCampaignAds = unstable_cache(
-  async (accountId: string, token: string, campaignId: string) => {
-    const es = encodeURIComponent(JSON.stringify(["ACTIVE"]));
+// Fetch ads without insights — lightweight, fast pages
+async function fetchCampaignAds(
+  accountId: string,
+  token: string,
+  campaignId: string,
+): Promise<MetaAd[]> {
+  const es = encodeURIComponent(JSON.stringify(["ACTIVE"]));
+  const filter = encodeURIComponent(
+    JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]),
+  );
+  for (const limit of [100, 50]) {
+    try {
+      return await fetchPaged<MetaAd>(
+        `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&filtering=${filter}&fields=${AD_FIELDS}&limit=${limit}&access_token=${token}`,
+      );
+    } catch (err) {
+      if (err instanceof OverloadError && limit > 50) continue;
+      throw err;
+    }
+  }
+  throw new Error("Meta API rejected request. Try again later.");
+}
+
+// Fetch lifetime insights for all active ads in the campaign (single call, parallel with ads)
+interface AdInsightRecord {
+  ad_id: string;
+  spend?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+}
+
+async function fetchCampaignInsights(
+  accountId: string,
+  token: string,
+  campaignId: string,
+): Promise<Map<string, MetaAdInsights>> {
+  try {
     const filter = encodeURIComponent(
       JSON.stringify([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]),
     );
-    // Retry with smaller page sizes if Meta returns "please reduce data"
-    for (const limit of [100, 50]) {
-      try {
-        const ads = await fetchPaged<MetaAd>(
-          `${GRAPH_URL}/act_${accountId}/ads?effective_status=${es}&filtering=${filter}&fields=${AD_FIELDS}&limit=${limit}&access_token=${token}`,
-        );
-        return { adsets: groupByAdSet(ads), adCount: ads.length, cachedAt: Date.now() };
-      } catch (err) {
-        if (err instanceof OverloadError && limit > 50) continue;
-        throw err;
-      }
-    }
-    throw new Error("Meta API rejected request. Try again later.");
+    const records = await fetchPaged<AdInsightRecord>(
+      `${GRAPH_URL}/act_${accountId}/insights?level=ad&filtering=${filter}&fields=ad_id,spend,actions&date_preset=lifetime&limit=500&access_token=${token}`,
+    );
+    return new Map(records.map((r) => [r.ad_id, { spend: r.spend, actions: r.actions }]));
+  } catch {
+    return new Map(); // insights are supplementary — never block ad display
+  }
+}
+
+const getCachedCampaignAds = unstable_cache(
+  async (accountId: string, token: string, campaignId: string) => {
+    // Run ads and insights in parallel — each call is now lightweight
+    const [ads, insightsMap] = await Promise.all([
+      fetchCampaignAds(accountId, token, campaignId),
+      fetchCampaignInsights(accountId, token, campaignId),
+    ]);
+    const adsWithInsights = ads.map((ad) => ({
+      ...ad,
+      insights: insightsMap.has(ad.id) ? { data: [insightsMap.get(ad.id)!] } : undefined,
+    }));
+    return { adsets: groupByAdSet(adsWithInsights), adCount: ads.length, cachedAt: Date.now() };
   },
   ["meta-campaign-ads"],
   { revalidate: 7200, tags: ["meta-ads"] },

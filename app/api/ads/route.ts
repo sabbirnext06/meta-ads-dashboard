@@ -96,11 +96,15 @@ async function fetchWithFallback(accountId: string, token: string, fields: strin
   throw new Error("Meta API rejected all page sizes. Please try again later.");
 }
 
-// Two-pass fetch: structure (no URLs) + creatives (no nesting) → merge by ad ID
-// With 2154 ads: 500/page = 5 calls per pass = 10 total (~2–4s vs 22 calls before)
+// Two-pass fetch running in PARALLEL: structure (no URLs) + creatives (no nesting)
+// Each pass: 2154 ads / 500 per page = 5 sequential calls (~2s each)
+// Both passes run simultaneously → total wall-clock = max(~2s, ~2s) = ~2s
+// vs old single-pass sequential: 22 calls = ~10-15s → Vercel timeout
 async function fetchAllAds(accountId: string, token: string): Promise<MetaAd[]> {
-  const structureAds = await fetchWithFallback(accountId, token, STRUCTURE_FIELDS);
-  const creativeAds = await fetchWithFallback(accountId, token, CREATIVE_FIELDS);
+  const [structureAds, creativeAds] = await Promise.all([
+    fetchWithFallback(accountId, token, STRUCTURE_FIELDS),
+    fetchWithFallback(accountId, token, CREATIVE_FIELDS),
+  ]);
 
   const creativeMap = new Map(creativeAds.map(a => [a.id, a.creative]));
   return structureAds.map(a => ({ ...a, creative: creativeMap.get(a.id) }));

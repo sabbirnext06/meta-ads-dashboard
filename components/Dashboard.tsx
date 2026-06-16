@@ -345,7 +345,7 @@ export default function Dashboard() {
   const [rateLimitMinutes, setRateLimitMinutes] = useState<number | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
@@ -463,7 +463,6 @@ export default function Dashboard() {
     }
   }, [passwordInput, load]);
 
-  useEffect(() => { load(false); }, [load]);
 
   const toggleCampaign = useCallback((id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -658,6 +657,30 @@ export default function Dashboard() {
             {[1, 2, 3].map((i) => (
               <CampaignSkeleton key={i} />
             ))}
+          </div>
+        )}
+
+        {/* Idle state — nothing fetched yet */}
+        {!loading && campaigns.length === 0 && !error && rateLimitMinutes == null && (
+          <div className="flex flex-col items-center justify-center py-24 gap-6">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+              </svg>
+            </div>
+            <div className="text-center">
+              <p className="text-gray-800 font-semibold text-base">No data loaded yet</p>
+              <p className="text-gray-400 text-sm mt-1">Click the button below to fetch your active Meta ads.</p>
+            </div>
+            <button
+              onClick={() => load(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-sm transition"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Fetch Data
+            </button>
           </div>
         )}
 

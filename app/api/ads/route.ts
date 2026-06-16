@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { unstable_cache, revalidateTag } from "next/cache";
-import { getValidToken, readTokenData, tokenExpiresIn } from "@/lib/token";
+import { checkAuth } from "@/lib/auth";
 import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
 
 export const maxDuration = 60;
@@ -61,7 +61,7 @@ async function fetchPaged<T>(firstUrl: string): Promise<T[]> {
   return all;
 }
 
-// ── Campaign list (fast initial load — 1 API call) ────────────────────────────
+// ── Campaign list ─────────────────────────────────────────────────────────────
 
 const getCachedCampaigns = unstable_cache(
   async (accountId: string, token: string) => {
@@ -75,7 +75,7 @@ const getCachedCampaigns = unstable_cache(
   { revalidate: 7200, tags: ["meta-ads"] },
 );
 
-// ── Per-campaign ads (1 API call per campaign) ────────────────────────────────
+// ── Per-campaign ads ──────────────────────────────────────────────────────────
 
 function groupByAdSet(ads: MetaAd[]): Record<string, AdsByAdSet> {
   const out: Record<string, AdsByAdSet> = {};
@@ -113,25 +113,29 @@ const getCachedCampaignAds = unstable_cache(
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const campaignId = searchParams.get("campaignId");
-  const forceRefresh = searchParams.get("refresh") === "true";
+  if (!checkAuth(request)) {
+    return NextResponse.json({ needsAuth: true }, { status: 401 });
+  }
+
+  const token = process.env.META_ACCESS_TOKEN;
+  if (!token) {
+    return NextResponse.json(
+      { error: "META_ACCESS_TOKEN is not set. Add your System User token to Vercel environment variables." },
+      { status: 500 },
+    );
+  }
 
   const accountId = process.env.META_AD_ACCOUNT_ID;
   if (!accountId) return NextResponse.json({ error: "META_AD_ACCOUNT_ID not set" }, { status: 500 });
 
-  const token = await getValidToken();
-  if (!token) return NextResponse.json({ needsAuth: true }, { status: 401 });
+  const { searchParams } = new URL(request.url);
+  const campaignId = searchParams.get("campaignId");
+  const forceRefresh = searchParams.get("refresh") === "true";
 
   if (forceRefresh) revalidateTag("meta-ads");
 
   const businessId = process.env.META_BUSINESS_ID ?? "";
-  const tokenData = await readTokenData();
-  const tokenMeta = {
-    accountId,
-    businessId,
-    tokenExpiresIn: tokenData ? tokenExpiresIn(tokenData) : null,
-  };
+  const tokenMeta = { accountId, businessId };
 
   try {
     if (campaignId) {

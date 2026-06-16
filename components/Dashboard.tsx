@@ -345,12 +345,15 @@ export default function Dashboard() {
   const [rateLimitMinutes, setRateLimitMinutes] = useState<number | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [tokenExpiresIn, setTokenExpiresIn] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cachedAt, setCachedAt] = useState<Date | null>(null);
   const [previewAd, setPreviewAd] = useState<MetaAd | null>(null);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const pauseRef = useRef(false);
+
   const loadCampaignAds = useCallback(async (campaignId: string) => {
     setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
     try {
@@ -366,6 +369,7 @@ export default function Dashboard() {
   }, []);
 
   const load = useCallback(async (forceRefresh = false) => {
+    pauseRef.current = false;
     setLoading(true);
     setError(null);
     setRateLimitMinutes(null);
@@ -396,8 +400,7 @@ export default function Dashboard() {
       setCampaigns(list);
       setAccountId((json.accountId as string) ?? "");
       setBusinessId((json.businessId as string) ?? "");
-      setTokenExpiresIn((json.tokenExpiresIn as string | null) ?? null);
-      setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : new Date());
+      setCachedAt(json.cachedAt ? new Date(json.cachedAt as number) : null);
       setLoading(false);
 
       // Auto-expand all campaigns
@@ -412,28 +415,55 @@ export default function Dashboard() {
 
       let done = 0;
       for (let i = 0; i < total; i += BATCH) {
+        if (pauseRef.current) break;
         const batch = list.slice(i, i + BATCH);
         await Promise.all(
           batch.map(async (c) => {
+            if (pauseRef.current) return;
             await loadCampaignAds(c.id);
             done++;
             setLoadingProgress({ done, total });
           }),
         );
       }
-      setLoadingProgress(null);
+      if (!pauseRef.current) setLoadingProgress(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
       setLoading(false);
     }
   }, [loadCampaignAds]);
 
-  useEffect(() => { load(false); }, [load]);
-
-  useEffect(() => {
-    const ae = new URLSearchParams(window.location.search).get("auth_error");
-    if (ae) { setAuthError(decodeURIComponent(ae)); window.history.replaceState({}, "", "/"); }
+  const handlePause = useCallback(() => {
+    pauseRef.current = true;
+    setLoadingProgress(null);
   }, []);
+
+  const handlePasswordSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordInput }),
+      });
+      if (res.ok) {
+        setNeedsAuth(false);
+        setPasswordInput("");
+        load(false);
+      } else {
+        const json = await res.json();
+        setAuthError((json.error as string) ?? "Incorrect password");
+      }
+    } catch {
+      setAuthError("Connection error. Please try again.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [passwordInput, load]);
+
+  useEffect(() => { load(false); }, [load]);
 
   const toggleCampaign = useCallback((id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -462,34 +492,53 @@ export default function Dashboard() {
     );
   });
 
-  // ── Connect screen ─────────────────────────────────────────────────────────
+  // ── Password gate ──────────────────────────────────────────────────────────
   if (!loading && needsAuth) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 w-full max-w-md text-center space-y-6">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 w-full max-w-sm text-center space-y-6">
           <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg">
-              <svg className="w-9 h-9 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+            <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">Meta Ads Dashboard</h1>
-            <p className="text-gray-500 text-sm mt-1">Connect your Facebook account to view all active ads, creatives, campaigns and ad sets.</p>
+            <p className="text-gray-500 text-sm mt-1">Enter the password to access the dashboard.</p>
           </div>
           {authError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 text-left">
-              <strong>Authentication failed:</strong> {authError}
+              {authError}
             </div>
           )}
-          <a href="/api/auth/login" className="flex items-center justify-center gap-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-            </svg>
-            Connect with Facebook
-          </a>
-          <p className="text-xs text-gray-400">Token lasts ~60 days · no password stored</p>
+          <form onSubmit={handlePasswordSubmit} className="space-y-3 text-left">
+            <input
+              type="password"
+              placeholder="Password"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={!passwordInput || authLoading}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition disabled:opacity-50"
+            >
+              {authLoading ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              )}
+              {authLoading ? "Verifying…" : "Enter Dashboard"}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -515,19 +564,38 @@ export default function Dashboard() {
               <p className="text-xs text-gray-500">Active ads · creatives overview</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {tokenExpiresIn && <span className="text-xs text-gray-400 hidden sm:block">Token expires in {tokenExpiresIn}</span>}
-            {cachedAt && <span className="text-xs text-gray-400 hidden md:block">· data from {cachedAt.toLocaleTimeString()}</span>}
-            <button
-              onClick={() => load(true)} disabled={loading || loadingProgress !== null}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition"
-            >
-              <svg className={`w-3.5 h-3.5 ${loading || loadingProgress !== null ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          <div className="flex items-center gap-2">
+            {cachedAt && (
+              <span className="text-xs text-gray-400 hidden md:block">
+                Last fetched {cachedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            {loadingProgress ? (
+              <button
+                onClick={handlePause}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition"
+              >
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                Pause
+              </button>
+            ) : (
+              <button
+                onClick={() => load(true)} disabled={loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition"
+              >
+                <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {loading ? "Loading…" : "Fetch Data"}
+              </button>
+            )}
+            <a href="/api/auth/logout" title="Logout" className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              Refresh
-            </button>
-            <a href="/api/auth/logout" className="text-xs text-gray-400 hover:text-red-500 transition hidden sm:block">Disconnect</a>
+            </a>
           </div>
         </div>
 

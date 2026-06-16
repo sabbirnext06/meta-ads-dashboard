@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { clearTokenFile } from "@/lib/token";
 import { getBaseUrl } from "@/lib/url";
 
 export async function GET() {
-  clearTokenFile();
-  const response = NextResponse.redirect(`${getBaseUrl()}/`);
-  response.cookies.delete("meta_token");
-  return response;
+  const res = NextResponse.redirect(`${getBaseUrl()}/`);
+  res.cookies.delete("ds_auth");
+  res.cookies.delete("meta_token"); // clear old OAuth cookie too
+  return res;
 }

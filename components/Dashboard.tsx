@@ -589,15 +589,30 @@ export default function Dashboard() {
                 Pause
               </button>
             ) : (
-              <button
-                onClick={() => load(true)} disabled={loading}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition"
-              >
-                <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {loading ? "Loading…" : "Fetch Data"}
-              </button>
+              <>
+                <button
+                  onClick={() => load(false)} disabled={loading}
+                  title="Load saved data from database (fast)"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg disabled:opacity-50 transition"
+                >
+                  <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                  </svg>
+                  <span className="hidden sm:inline">Load Database</span>
+                  <span className="sm:hidden">DB</span>
+                </button>
+                <button
+                  onClick={() => load(true)} disabled={loading}
+                  title="Fetch fresh data directly from Meta API"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 transition"
+                >
+                  <svg className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span className="hidden sm:inline">{loading ? "Loading…" : "Fetch from Meta"}</span>
+                  <span className="sm:hidden">{loading ? "…" : "Meta"}</span>
+                </button>
+              </>
             )}
             <a href="/api/auth/logout" title="Logout" className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -679,17 +694,28 @@ export default function Dashboard() {
             </div>
             <div className="text-center">
               <p className="text-gray-800 font-semibold text-base">No data loaded yet</p>
-              <p className="text-gray-400 text-sm mt-1">Click the button below to fetch your active Meta ads.</p>
+              <p className="text-gray-400 text-sm mt-1">Load saved data from the database, or fetch fresh from Meta.</p>
             </div>
-            <button
-              onClick={() => load(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-sm transition"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Fetch Data
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => load(false)}
+                className="flex items-center gap-2 px-5 py-3 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold rounded-xl shadow-sm transition"
+              >
+                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+                </svg>
+                Load from Database
+              </button>
+              <button
+                onClick={() => load(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-sm transition"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Fetch from Meta
+              </button>
+            </div>
           </div>
         )}
 

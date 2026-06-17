@@ -354,12 +354,6 @@ export default function Dashboard() {
   const [authLoading, setAuthLoading] = useState(false);
   const pauseRef = useRef(false);
 
-  // Auto-load from KV cache on mount (fast Redis read — only hits Meta API if cache is empty)
-  useEffect(() => {
-    load(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const loadCampaignAds = useCallback(async (campaignId: string, refresh = false) => {
     setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
     try {

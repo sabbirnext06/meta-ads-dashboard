@@ -33,3 +33,9 @@ export async function kvSet(key: string, value: unknown): Promise<void> {
   try { await cmd(["SET", key, JSON.stringify(value)]); }
   catch { /* non-fatal */ }
 }
+
+export async function kvDel(key: string): Promise<void> {
+  if (!configured()) return;
+  try { await cmd(["DEL", key]); }
+  catch { /* non-fatal */ }
+}

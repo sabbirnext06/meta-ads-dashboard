@@ -643,11 +643,16 @@ export default function Dashboard() {
             </svg>
             <div className="flex-1">
               <p className="font-medium text-orange-800 text-sm">Meta API rate limit reached</p>
-              <p className="text-orange-700 text-sm mt-0.5">Resets in ~<strong>{rateLimitMinutes} min</strong>. Please wait then click Refresh.</p>
+              <p className="text-orange-700 text-sm mt-0.5">
+                Meta is blocked for ~<strong>{rateLimitMinutes} min</strong>. Load your last saved data from the database instead.
+              </p>
             </div>
             <button onClick={() => load(false)} disabled={loading}
-              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-orange-100 hover:bg-orange-200 text-orange-800 disabled:opacity-50 transition">
-              Retry
+              className="shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white border border-orange-300 hover:bg-orange-50 text-orange-800 disabled:opacity-50 transition">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+              </svg>
+              Load from Database
             </button>
           </div>
         )}

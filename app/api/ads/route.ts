@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkAuth } from "@/lib/auth";
-import { kvGet, kvSet } from "@/lib/kv";
+import { kvGet, kvSet, kvDel } from "@/lib/kv";
 import type { MetaAd, MetaCampaign, AdsByAdSet } from "@/types/meta";
 
 export const maxDuration = 60;
@@ -145,7 +145,14 @@ export async function GET(request: Request) {
       const cached = await kvGet<{ campaigns: MetaCampaign[]; cachedAt: number; accountId: string; businessId: string }>(KEY_CAMPAIGNS);
       if (cached) return NextResponse.json(cached);
     }
+    // Before saving new data, delete ad keys for campaigns no longer active
+    const oldCached = await kvGet<{ campaigns: MetaCampaign[] }>(KEY_CAMPAIGNS);
     const data = await fetchCampaigns(accountId, token, businessId);
+    if (oldCached) {
+      const newIds = new Set(data.campaigns.map((c) => c.id));
+      const staleIds = oldCached.campaigns.filter((c) => !newIds.has(c.id)).map((c) => c.id);
+      await Promise.all(staleIds.map((id) => kvDel(keyAds(id))));
+    }
     return NextResponse.json(data);
   } catch (err) {
     if (err instanceof RateLimitError)

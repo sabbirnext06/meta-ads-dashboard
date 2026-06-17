@@ -354,10 +354,13 @@ export default function Dashboard() {
   const [authLoading, setAuthLoading] = useState(false);
   const pauseRef = useRef(false);
 
-  const loadCampaignAds = useCallback(async (campaignId: string) => {
+  const loadCampaignAds = useCallback(async (campaignId: string, refresh = false) => {
     setCampaignAds((prev) => ({ ...prev, [campaignId]: "loading" }));
     try {
-      const res = await fetch(`/api/ads?campaignId=${campaignId}`);
+      const url = refresh
+        ? `/api/ads?campaignId=${campaignId}&refresh=true`
+        : `/api/ads?campaignId=${campaignId}`;
+      const res = await fetch(url);
       let json: Record<string, unknown>;
       try { json = await res.json(); }
       catch { throw new Error(`Server error (${res.status})`); }
@@ -420,7 +423,7 @@ export default function Dashboard() {
         await Promise.all(
           batch.map(async (c) => {
             if (pauseRef.current) return;
-            await loadCampaignAds(c.id);
+            await loadCampaignAds(c.id, forceRefresh);
             done++;
             setLoadingProgress({ done, total });
           }),
